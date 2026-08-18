@@ -25,6 +25,81 @@ const CONFIG = {
 };
 
 /**
+ * Daftar action yang bersifat PUBLIK (tidak memerlukan autentikasi).
+ * Action lainnya wajib menyertakan apiKey atau sessionToken yang valid.
+ */
+const PUBLIC_ACTIONS = [
+  "getDashboard",
+  "getDashboardSummary",
+  "getAppSettings",
+  "getBatches",
+  "getQueue",
+  "getQueueByBatch",
+  "getMembers",
+  "getMember",
+  "getTransactions",
+  "loginAdmin"
+];
+
+// ==============================================================================
+// KEAMANAN: Validasi API Key & Session Token
+// ==============================================================================
+
+/**
+ * Memvalidasi API Key dari request MCP Server / REST API.
+ * API Key disimpan di Script Properties dengan kunci 'API_SECRET_KEY'.
+ * Cara setup: Extensions → Apps Script → Project Settings → Script Properties
+ *             → Tambah property: API_SECRET_KEY = <random-string-panjang>
+ */
+function validateApiKey(apiKey) {
+  if (!apiKey) return false;
+  const props = PropertiesService.getScriptProperties();
+  const secretKey = props.getProperty("API_SECRET_KEY");
+  if (!secretKey) {
+    // Jika belum dikonfigurasi, tampilkan peringatan di log
+    console.warn("PERINGATAN KEAMANAN: API_SECRET_KEY belum diatur di Script Properties!");
+    return false;
+  }
+  return String(apiKey).trim() === String(secretKey).trim();
+}
+
+/**
+ * Memvalidasi session token dari frontend Web App.
+ * Token disimpan sementara di CacheService (server-side, TTL 1 jam).
+ */
+function validateSession(token) {
+  if (!token) return false;
+  try {
+    const cache = CacheService.getScriptCache();
+    const storedValue = cache.get("SESSION_" + String(token).trim());
+    return storedValue === "ADMIN";
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Memeriksa apakah request memiliki otorisasi yang valid.
+ * Menerima API Key (untuk MCP/REST) atau Session Token (untuk frontend).
+ */
+function isAuthorized(data) {
+  if (data.apiKey && validateApiKey(data.apiKey)) return true;
+  if (data.sessionToken && validateSession(data.sessionToken)) return true;
+  return false;
+}
+
+/**
+ * Membuat respons Unauthorized yang seragam.
+ */
+function unauthorizedResponse() {
+  return {
+    success: false,
+    message: "Unauthorized: Akses ditolak. Diperlukan API Key atau session login admin yang valid.",
+    code: 403
+  };
+}
+
+/**
  * Endpoint GET Web App (Merender Antarmuka HTML atau memproses API GET)
  */
 function doGet(e) {
@@ -252,18 +327,35 @@ function getAppSettings() {
 
 /**
  * Autentikasi Login Admin Pengurus
+ * Token yang dikembalikan disimpan server-side di CacheService (TTL: 1 jam).
  */
 function loginAdmin(pinInput) {
   const currentPin = getAdminPin();
   const cleanInput = String(pinInput || "").trim();
 
   if (cleanInput === currentPin) {
+    // Buat token unik yang aman menggunakan UUID random
+    const token = Utilities.base64Encode(
+      Utilities.computeDigest(
+        Utilities.DigestAlgorithm.SHA_256,
+        "ADMIN_SESSION_" + new Date().getTime() + "_" + Math.random().toString(36)
+      )
+    ).replace(/[+/=]/g, "").substring(0, 48);
+
+    // Simpan token di server-side cache (TTL 3600 detik = 1 jam)
+    try {
+      const cache = CacheService.getScriptCache();
+      cache.put("SESSION_" + token, "ADMIN", 3600);
+    } catch (e) {
+      console.error("Gagal menyimpan session token:", e);
+    }
+
     return {
       success: true,
       message: "Login Admin berhasil!",
       role: "ADMIN",
       adminName: "Pengurus KDMP Desa Gulun",
-      token: Utilities.base64Encode("ADMIN_AUTH_" + new Date().getTime())
+      token: token
     };
   }
 
@@ -271,6 +363,21 @@ function loginAdmin(pinInput) {
     success: false,
     message: "PIN Admin salah. Silakan coba lagi!"
   };
+}
+
+/**
+ * Logout Admin - menghapus session token dari CacheService server-side.
+ */
+function logoutAdmin(token) {
+  if (token) {
+    try {
+      const cache = CacheService.getScriptCache();
+      cache.remove("SESSION_" + String(token).trim());
+    } catch (e) {
+      console.error("Gagal menghapus session:", e);
+    }
+  }
+  return { success: true, message: "Anda telah keluar dari sesi admin." };
 }
 
 /**
@@ -312,8 +419,12 @@ function changeAdminPin(oldPin, newPin) {
 /**
  * Mengimpor data anggota dari Spreadsheet Referensi secara AMAN (HANYA MEMBACA, TIDAK MENGUBAH ASLINYA).
  * Menargetkan lembar kerja 'template_simkopdes' sesuai struktur data SIMKOPDES Desa Gulun.
+ * @param {string} sessionToken - Token sesi admin dari frontend (parameter ke-3)
  */
-function importMembersFromReference(customRefId, customSheetName) {
+function importMembersFromReference(customRefId, customSheetName, sessionToken) {
+  if (sessionToken !== undefined && !validateSession(sessionToken)) {
+    return { success: false, message: "Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.", code: 403 };
+  }
   const refId = customRefId || CONFIG.REFERENCE_SHEET_ID;
   const sheetName = customSheetName || "template_simkopdes";
   const refSs = SpreadsheetApp.openById(refId);

@@ -35,8 +35,12 @@ function getAllBatches() {
 
 /**
  * Membuat Batch Pengiriman Baru (Default: Hari Jumat Sore 25 Tabung)
+ * @param {string} sessionToken - Token sesi admin dari frontend (opsional, wajib jika dipanggil langsung)
  */
-function createBatch(tglJadwalStr, waktuKirim, jumlahStok) {
+function createBatch(tglJadwalStr, waktuKirim, jumlahStok, sessionToken) {
+  if (sessionToken !== undefined && !validateSession(sessionToken)) {
+    throw new Error("Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.");
+  }
   const db = getDatabase();
   const sheet = db.getSheetByName(CONFIG.SHEETS.BATCH_PENGIRIMAN);
   
@@ -89,8 +93,12 @@ function createBatch(tglJadwalStr, waktuKirim, jumlahStok) {
 
 /**
  * SMART GENERATOR: Meng-generate 25 Anggota Antrian berdasarkan Algoritma Berkeadilan
+ * @param {string} sessionToken - Token sesi admin dari frontend
  */
-function generateBatchQueue(batchId, quotaLimit) {
+function generateBatchQueue(batchId, quotaLimit, sessionToken) {
+  if (sessionToken !== undefined && !validateSession(sessionToken)) {
+    throw new Error("Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.");
+  }
   const db = getDatabase();
   const quota = Number(quotaLimit) || CONFIG.DEFAULT_QUOTA_PER_BATCH;
 
@@ -275,8 +283,12 @@ function getQueueByBatch(batchId) {
 
 /**
  * Mencatat waktu pengiriman pesan WhatsApp pengingat ke anggota
+ * @param {string} sessionToken - Token sesi admin dari frontend
  */
-function recordWaSent(queueId) {
+function recordWaSent(queueId, sessionToken) {
+  if (sessionToken !== undefined && !validateSession(sessionToken)) {
+    throw new Error("Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.");
+  }
   const db = getDatabase();
   const sheet = db.getSheetByName(CONFIG.SHEETS.ANTRIAN_DISTRIBUSI);
   const values = sheet.getDataRange().getValues();
@@ -301,8 +313,12 @@ function recordWaSent(queueId) {
 
 /**
  * FLEKSIBILITAS: Menukar Posisi / Nomor Urut antara 2 Antrian (Swap Order)
+ * @param {string} sessionToken - Token sesi admin dari frontend
  */
-function swapQueuePosition(queueId1, queueId2) {
+function swapQueuePosition(queueId1, queueId2, sessionToken) {
+  if (sessionToken !== undefined && !validateSession(sessionToken)) {
+    throw new Error("Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.");
+  }
   const db = getDatabase();
   const sheet = db.getSheetByName(CONFIG.SHEETS.ANTRIAN_DISTRIBUSI);
   const values = sheet.getDataRange().getValues();
@@ -343,8 +359,12 @@ function swapQueuePosition(queueId1, queueId2) {
 
 /**
  * FLEKSIBILITAS: Mengganti Anggota Penerima pada Slot Antrian (Replace Member / Delegasi)
+ * @param {string} sessionToken - Token sesi admin dari frontend
  */
-function replaceQueueMember(queueId, newMemberId, reason) {
+function replaceQueueMember(queueId, newMemberId, reason, sessionToken) {
+  if (sessionToken !== undefined && !validateSession(sessionToken)) {
+    throw new Error("Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.");
+  }
   const db = getDatabase();
   const sheet = db.getSheetByName(CONFIG.SHEETS.ANTRIAN_DISTRIBUSI);
   const values = sheet.getDataRange().getValues();
@@ -386,8 +406,12 @@ function replaceQueueMember(queueId, newMemberId, reason) {
 
 /**
  * Membatalkan / Menandai Lewat Antrian
+ * @param {string} sessionToken - Token sesi admin dari frontend
  */
-function cancelOrSkipQueue(queueId, reason) {
+function cancelOrSkipQueue(queueId, reason, sessionToken) {
+  if (sessionToken !== undefined && !validateSession(sessionToken)) {
+    throw new Error("Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.");
+  }
   const db = getDatabase();
   const sheet = db.getSheetByName(CONFIG.SHEETS.ANTRIAN_DISTRIBUSI);
   const values = sheet.getDataRange().getValues();

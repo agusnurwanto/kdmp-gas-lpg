@@ -7,9 +7,13 @@
 /**
  * Konfirmasi Pengambilan Gas & Pembayaran (1-Klik Kasir)
  * Mencatat transaksi riil dan memperbarui status antrian, stok batch, serta statistik anggota.
+ * @param {Object} params - Parameter transaksi. Sertakan params.sessionToken jika dipanggil dari frontend.
  */
 function confirmPickupAndPayment(params) {
   params = params || {};
+  if (params.sessionToken !== undefined && !validateSession(params.sessionToken)) {
+    return { success: false, message: "Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.", code: 403 };
+  }
   const queueId = params.queueId || params.id_antrian;
   if (!queueId) {
     throw new Error("ID Antrian (queueId) wajib disertakan.");

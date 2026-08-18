@@ -83,8 +83,13 @@ function getMemberById(memberIdOrNik) {
 
 /**
  * Menambahkan anggota baru ke Sheet ANGGOTA
+ * @param {Object} data - Data anggota baru. Sertakan data.sessionToken untuk validasi sesi dari frontend.
  */
 function addMember(data) {
+  // Validasi sesi jika ada sessionToken dalam data (dikirim dari frontend)
+  if (data.sessionToken !== undefined && !validateSession(data.sessionToken)) {
+    return { success: false, message: "Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.", code: 403 };
+  }
   if (!data.nama_lengkap) {
     throw new Error("Nama lengkap anggota wajib diisi.");
   }
@@ -119,8 +124,13 @@ function addMember(data) {
 
 /**
  * Memperbarui data anggota
+ * @param {Object} data - Data update. Sertakan data.sessionToken untuk validasi sesi dari frontend.
  */
 function updateMember(memberId, data) {
+  // Validasi sesi jika ada sessionToken dalam data (dikirim dari frontend)
+  if (data.sessionToken !== undefined && !validateSession(data.sessionToken)) {
+    return { success: false, message: "Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.", code: 403 };
+  }
   const db = getDatabase();
   const sheet = db.getSheetByName(CONFIG.SHEETS.ANGGOTA);
   const values = sheet.getDataRange().getValues();
@@ -146,8 +156,12 @@ function updateMember(memberId, data) {
 
 /**
  * Me-reset kuota bulanan anggota (total_beli_bulan_ini = 0) saat pergantian bulan baru
+ * @param {string} sessionToken - Token sesi admin dari frontend
  */
-function resetMonthlyQuota() {
+function resetMonthlyQuota(sessionToken) {
+  if (sessionToken !== undefined && !validateSession(sessionToken)) {
+    return { success: false, message: "Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.", code: 403 };
+  }
   const db = getDatabase();
   const sheet = db.getSheetByName(CONFIG.SHEETS.ANGGOTA);
   const lastRow = sheet.getLastRow();

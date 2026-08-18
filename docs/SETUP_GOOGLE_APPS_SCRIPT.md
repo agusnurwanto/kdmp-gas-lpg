@@ -58,18 +58,32 @@ Di editor Google Apps Script, buat berkas-berkas berikut sesuai struktur proyek:
 
 ---
 
-## Langkah 5: Deploy Menjadi Web App
+---
+
+## Langkah 5: Setel Kunci Keamanan API (Script Properties)
+
+Untuk mengamankan endpoint API dari manipulasi publik / pihak yang tidak berhak dan menghubungkan dengan MCP Server:
+1. Di bilah menu kiri Apps Script Editor, klik **Project Settings** (ikon roda gigi ⚙️).
+2. Gulir ke bawah ke bagian **Script Properties (Properti Skrip)**.
+3. Klik **Add script property (Tambah properti skrip)**:
+   - **Property**: `API_SECRET_KEY`
+   - **Value**: Masukkan kode rahasia unik/acak yang panjang (contoh: `kdmp_gas_gulun_secret_key_2026_x89a!`)
+4. Klik **Save script properties (Simpan properti skrip)**.
+
+---
+
+## Langkah 6: Deploy Menjadi Web App
 
 1. Di pojok kanan atas Apps Script, klik tombol **Deploy** > **New deployment**.
 2. Pilih jenis: **Web app** (ikon roda gigi).
 3. Isi konfigurasi:
    - **Description**: `Sistem Distribusi Gas LPG KDMP Desa Gulun v1.0`
    - **Execute as**: `Me` (email akun Google Anda)
-   - **Who has access**: `Anyone` (agar dapat diakses terbuka oleh warga pada portal beranda dan oleh pengurus via login PIN)
+   - **Who has access**: `Anyone` (agar warga dapat melihat beranda & status antrian publik, sementara pengurus/admin & API diverifikasi lewat kredensial)
 4. Klik **Deploy**.
 5. Salin **Web app URL** (contoh: `https://script.google.com/macros/s/AKfycb.../exec`).
-6. Buka URL tersebut di browser smartphone atau laptop Anda untuk mulai menggunakan aplikasi!
+6. Masukkan URL tersebut dan `API_SECRET_KEY` ke konfigurasi MCP Server Anda (`.env` atau file konfigurasi MCP).
 
 > **💡 Catatan Keamanan**: 
-> Walaupun Web App disetel ke `Who has access: Anyone`, fitur sensitif pengelolaan (antrian, kasir, master data, pengaturan) telah diamankan oleh sistem autentikasi PIN Admin di sisi frontend dan backend.
-
+> - Semua operasi tulis/modifikasi database (tambah/edit anggota, buat batch, generate antrian, tukar antrian, konfirmasi kasir, ubah PIN, dsb.) **wajib** memiliki API Key yang valid via API/MCP Server atau sesi login Admin via Web App.
+> - Pengguna publik hanya dapat membaca data tampilan publik (jadwal & nomor antrian tanpa nomor HP/NIK dan ringkasan kuota).

@@ -4,7 +4,8 @@
       "command": "node",
       "args": ["c:/xampp/htdocs/google_apps_script/mcp_server/dist/index.js"],
       "env": {
-        "GAS_WEBAPP_URL": "MASUKKAN_URL_WEB_APP_GOOGLE_APPS_SCRIPT_DISINI"
+        "GAS_WEBAPP_URL": "MASUKKAN_URL_WEB_APP_GOOGLE_APPS_SCRIPT_DISINI",
+        "GAS_API_KEY": "MASUKKAN_API_SECRET_KEY_DISINI"
       }
     }
   }

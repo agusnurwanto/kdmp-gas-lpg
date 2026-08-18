@@ -9,6 +9,7 @@ from mcp.server.fastmcp import FastMCP
 
 # URL Google Apps Script Web App (Diperoleh setelah Deploy Web App)
 GAS_WEBAPP_URL = os.environ.get("GAS_WEBAPP_URL", "")
+GAS_API_KEY = os.environ.get("GAS_API_KEY", "")
 
 mcp = FastMCP("Gas-KDMP-Gulun")
 
@@ -16,7 +17,7 @@ def call_gas_api(action: str, **kwargs):
     if not GAS_WEBAPP_URL:
         return {"success": False, "message": "GAS_WEBAPP_URL environment variable belum disetel."}
     
-    payload = {"action": action, **kwargs}
+    payload = {"action": action, "apiKey": GAS_API_KEY, **kwargs}
     try:
         res = requests.post(GAS_WEBAPP_URL, json=payload, timeout=30)
         return res.json()

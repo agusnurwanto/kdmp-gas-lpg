@@ -38,6 +38,7 @@ Tersedia dua opsi runtime: **Node.js (TypeScript)** dan **Python (FastMCP)**.
    Buat file `.env` di folder `mcp_server`:
    ```env
    GAS_WEBAPP_URL=https://script.google.com/macros/s/AKfycb.../exec
+   GAS_API_KEY=kdmp_gas_gulun_secret_key_2026_x89a!
    ```
 
 ---
@@ -52,6 +53,7 @@ Tersedia dua opsi runtime: **Node.js (TypeScript)** dan **Python (FastMCP)**.
 2. **Jalankan Server**:
    ```powershell
    $env:GAS_WEBAPP_URL="https://script.google.com/macros/s/AKfycb.../exec"
+   $env:GAS_API_KEY="kdmp_gas_gulun_secret_key_2026_x89a!"
    python server.py
    ```
 

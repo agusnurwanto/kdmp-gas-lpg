@@ -18,6 +18,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const GAS_WEBAPP_URL = process.env.GAS_WEBAPP_URL || "";
+const GAS_API_KEY = process.env.GAS_API_KEY || "";
 
 // Helper untuk memanggil API backend Google Apps Script
 async function callGasApi(action: string, payload: Record<string, any> = {}) {
@@ -28,6 +29,7 @@ async function callGasApi(action: string, payload: Record<string, any> = {}) {
   try {
     const response = await axios.post(GAS_WEBAPP_URL, {
       action: action,
+      apiKey: GAS_API_KEY,
       ...payload
     }, {
       headers: { "Content-Type": "application/json" },
