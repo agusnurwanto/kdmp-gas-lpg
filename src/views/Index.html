@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><?= appName ?></title>
+  <?!= include('Style'); ?>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Navbar & Navigasi Tab -->
+    <?!= include('Header'); ?>
+
+    <!-- Tab Utama Publik: Beranda & Rekapitulasi Terbuka untuk Warga -->
+    <?!= include('PublicHomeView'); ?>
+
+    <!-- Tab Pengurus (Admin Only): Antrian Batch & Kasir -->
+    <?!= include('QueueView'); ?>
+
+    <!-- Tab Pengurus (Admin Only): Dashboard & Rekapitulasi Pembelian -->
+    <?!= include('DashboardView'); ?>
+
+    <!-- Tab Pengurus (Admin Only): Master Data Anggota & Pengaturan -->
+    <?!= include('MemberView'); ?>
+  </div>
+
+  <!-- MODAL LOGIN ADMIN -->
+  <div id="modal-login" class="modal-backdrop">
+    <div class="modal-dialog" style="max-width: 380px;">
+      <div class="modal-header">
+        <h3 class="modal-title">🔐 Login Pengurus KDMP</h3>
+        <button class="modal-close" onclick="closeModal('modal-login')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
+          Masukkan PIN Admin Koperasi Desa Merah Putih Desa Gulun untuk membuka panel pengelolaan antrian & kasir:
+        </p>
+        <div class="form-group">
+          <label class="form-label">PIN Admin:</label>
+          <input type="password" id="login-pin-input" class="input-text" style="width: 100%; font-size: 18px; letter-spacing: 4px; text-align: center;" placeholder="••••••" maxlength="10" onkeyup="if(event.key==='Enter') submitLoginAdmin()">
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">*PIN default awal: <code>123456</code></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeModal('modal-login')">Batal</button>
+        <button class="btn btn-primary" onclick="submitLoginAdmin()">Masuk Admin</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notifikasi Mengambang -->
+  <div id="app-toast" class="toast">Notifikasi</div>
+
+  <!-- Script Interaktif Frontend -->
+  <?!= include('Script'); ?>
+</body>
+</html>

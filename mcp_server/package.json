@@ -1,0 +1,22 @@
+{
+  "name": "gas-kdmp-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP Server untuk Sistem Antrian dan Penjualan Gas LPG KDMP Desa Gulun",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.6.1",
+    "axios": "^1.7.9",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  }
+}

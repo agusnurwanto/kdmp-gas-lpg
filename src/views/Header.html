@@ -1,0 +1,32 @@
+<header class="navbar">
+  <div class="brand-group">
+    <div class="brand-badge">KDMP GULUN</div>
+    <div>
+      <h1 class="brand-title">Sistem Distribusi Gas LPG</h1>
+      <p class="brand-subtitle">Koperasi Desa Merah Putih &bull; Desa Gulun, Kec. Maospati, Magetan</p>
+    </div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+    <nav class="nav-tabs" role="tablist">
+      <button class="tab-btn active" id="btn-tab-public" onclick="switchTab('tab-public-home')">🏠 Beranda &amp; Info</button>
+      <button class="tab-btn" id="btn-tab-dashboard" onclick="switchTab('tab-dashboard')">📊 Laporan Rekap</button>
+      <button class="tab-btn admin-tab" id="btn-tab-queue" onclick="switchTab('tab-queue')" style="display: none;">📋 Antrian Batch</button>
+      <button class="tab-btn admin-tab" id="btn-tab-members" onclick="switchTab('tab-members')" style="display: none;">👥 Master Anggota</button>
+      <button class="tab-btn admin-tab" id="btn-tab-settings" onclick="switchTab('tab-settings')" style="display: none;">⚙️ Setup &amp; PIN</button>
+    </nav>
+
+    <!-- Tombol Auth Admin -->
+    <div id="auth-container">
+      <button id="btn-login-modal" class="btn btn-outline btn-sm" onclick="openLoginModal()">
+        🔐 Login Admin
+      </button>
+      <div id="admin-badge-group" style="display: none; align-items: center; gap: 8px;">
+        <span class="kpi-badge badge-success">👤 Admin Aktif</span>
+        <button class="btn btn-outline btn-sm" onclick="logoutAdmin()" title="Keluar dari mode admin">
+          Keluar
+        </button>
+      </div>
+    </div>
+  </div>
+</header>

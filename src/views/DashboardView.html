@@ -1,0 +1,105 @@
+<!-- ============================================================================== -->
+<!-- DashboardView.html - Laporan & Rekap Distribusi Gas LPG (Publik + Admin)      -->
+<!-- Dapat dilihat oleh seluruh anggota tanpa login                                -->
+<!-- ============================================================================== -->
+
+<div id="tab-dashboard" class="tab-pane">
+
+  <!-- Banner info publik -->
+  <div
+    style="background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%); color: white; border-radius: var(--radius-lg); padding: 18px 22px; margin-bottom: 22px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; border: 1px solid #334155;">
+    <div>
+      <div
+        style="font-size: 11px; font-weight: 700; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">
+        Laporan Distribusi Gas LPG 3Kg</div>
+      <div style="font-size: 18px; font-weight: 800; color: white;">Rekapitulasi Bulan Berjalan</div>
+      <div style="font-size: 12px; color: #CBD5E1; margin-top: 2px;">Koperasi Desa Merah Putih (KDMP) Desa Gulun — Data
+        diperbarui secara real-time</div>
+    </div>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+      <span class="kpi-badge badge-success" style="font-size: 12px; padding: 6px 12px;">📊 Publik</span>
+      <button class="btn btn-outline btn-sm" style="border-color: #475569;" onclick="loadDashboardData()">🔄
+        Perbarui</button>
+    </div>
+  </div>
+
+  <!-- KPI Metrics Grid -->
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <span class="kpi-label">TOTAL ANGGOTA DESA</span>
+      <div id="stat-total-members" class="kpi-value">0</div>
+      <div class="kpi-desc">Warga terdaftar di KDMP Gulun</div>
+    </div>
+
+    <div class="kpi-card">
+      <span class="kpi-label">REALISASI BULAN INI</span>
+      <div id="stat-monthly-quota" class="kpi-value">0 / 100</div>
+      <div class="kpi-desc" id="stat-quota-pct">0% dari kuota pangkalan 100 tabung</div>
+    </div>
+
+    <div class="kpi-card">
+      <span class="kpi-label">ANGGOTA SUDAH DAPAT</span>
+      <div id="stat-served-count" class="kpi-value" style="color: var(--success);">0</div>
+      <div class="kpi-desc">Telah menerima gas pada bulan ini</div>
+    </div>
+
+    <div class="kpi-card">
+      <span class="kpi-label">BELUM DAPAT (PRIORITAS)</span>
+      <div id="stat-unserved-count" class="kpi-value" style="color: var(--primary);">0</div>
+      <div class="kpi-desc">Prioritas antrian batch berikutnya</div>
+    </div>
+  </div>
+
+  <!-- Filter & Search Toolbar -->
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <input type="text" id="report-search" class="input-text" placeholder="🔍 Cari nama / ID / RT..."
+        oninput="filterReportTable()" style="min-width: 220px;">
+      <select id="report-filter-status" class="select-control" onchange="filterReportTable()">
+        <option value="ALL">Semua Status Kuota</option>
+        <option value="UNSERVED">⏳ Belum Dapat Bulan Ini (Prioritas)</option>
+        <option value="SERVED">✅ Sudah Dapat Bulan Ini</option>
+      </select>
+    </div>
+    <div class="toolbar-right">
+      <!-- Tombol CSV hanya untuk admin -->
+      <button id="btn-export-csv" class="btn btn-outline admin-tab" onclick="exportReportToCSV()"
+        style="display:none;">📥 Download CSV</button>
+    </div>
+  </div>
+
+  <!-- Tabel Rekap Anggota -->
+  <div class="table-container">
+    <div
+      style="padding: 14px 20px; border-bottom: 1px solid var(--border-color); background: #F8FAFC; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+      <div>
+        <h3 style="font-size: 15px; font-weight: 700; color: var(--secondary);">Daftar Anggota & Status Penerimaan Gas
+        </h3>
+        <p style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">Anggota diurutkan berdasarkan prioritas —
+          yang belum dapat ditampilkan di atas</p>
+      </div>
+      <span id="report-count-badge" class="kpi-badge badge-accent">0 anggota</span>
+    </div>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>ID Anggota</th>
+          <th>Nama Lengkap</th>
+          <th>RT / RW</th>
+          <th id="report-col-wa" class="admin-tab" style="display:none;">No HP / WA</th>
+          <th style="text-align: center;">Beli Bulan Ini</th>
+          <th style="text-align: center;">Total Kumulatif</th>
+          <th>Terakhir Ambil Gas</th>
+          <th>Status Kuota</th>
+        </tr>
+      </thead>
+      <tbody id="report-table-body">
+        <tr>
+          <td colspan="8" style="text-align: center; padding: 30px; color: var(--text-muted);">Memuat rekapitulasi data
+            anggota...</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>

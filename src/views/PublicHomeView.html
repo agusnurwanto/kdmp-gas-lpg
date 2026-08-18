@@ -1,0 +1,125 @@
+<!-- ============================================================================== -->
+<!-- PublicHomeView.html - Halaman Beranda & Rekapitulasi Publik KDMP Desa Gulun   -->
+<!-- Dapat diakses oleh seluruh warga tanpa perlu login                            -->
+<!-- ============================================================================== -->
+
+<div id="tab-public-home" class="tab-pane active">
+  <!-- Hero Banner Publik -->
+  <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%); color: white; border-radius: var(--radius-lg); padding: 28px 24px; margin-bottom: 24px; box-shadow: var(--shadow-md); border: 1px solid #334155;">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+      <div style="max-width: 700px;">
+        <span style="background: #DC2626; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 20px; text-transform: uppercase; letter-spacing: 0.5px;">
+          PENGUMUMAN RESMI WARGA
+        </span>
+        <h2 style="font-size: 24px; font-weight: 800; margin: 10px 0 6px 0; color: white;">
+          Distribusi Gas LPG 3Kg KDMP Desa Gulun
+        </h2>
+        <p style="font-size: 14px; color: #CBD5E1; line-height: 1.6;">
+          Penyaluran gas LPG bersubsidi bagi anggota Koperasi Desa Merah Putih Desa Gulun dilakukan dengan <strong>sistem antrian bergilir adil</strong> sebanyak <strong>25 tabung setiap hari Jumat sore (Pukul 16:00 WIB)</strong>.
+        </p>
+      </div>
+
+      <div style="background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: var(--radius-md); padding: 16px 20px; text-align: center; min-width: 200px;">
+        <div style="font-size: 12px; color: #94A3B8; font-weight: 600;">HARGA RESMI KOPERASI</div>
+        <div style="font-size: 26px; font-weight: 800; color: #4ADE80; margin: 4px 0;" class="dynamic-price">Rp 20.000</div>
+        <div style="font-size: 11px; color: #CBD5E1;">Wajib bawa tabung kosong</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- KPI Ringkasan Publik -->
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <span class="kpi-label">JADWAL BATCH TERKINI</span>
+      <div id="public-stat-batch-date" class="kpi-value" style="font-size: 22px;">-</div>
+      <div class="kpi-desc" id="public-stat-batch-time">Jumat Sore, 16:00 WIB</div>
+    </div>
+
+    <div class="kpi-card">
+      <span class="kpi-label">SISA STOK BATCH INI</span>
+      <div id="public-stat-batch-stock" class="kpi-value" style="color: var(--primary);">-</div>
+      <div class="kpi-desc" id="public-stat-batch-progress">Kuota 25 Tabung</div>
+    </div>
+
+    <div class="kpi-card">
+      <span class="kpi-label">REALISASI BULAN INI</span>
+      <div id="public-stat-month-quota" class="kpi-value" style="color: var(--success);">-</div>
+      <div class="kpi-desc">Dari kuota 100 tabung / bulan</div>
+    </div>
+
+    <div class="kpi-card">
+      <span class="kpi-label">ANGGOTA TERLAYANI</span>
+      <div id="public-stat-served-count" class="kpi-value" style="color: var(--accent);">-</div>
+      <div class="kpi-desc">Warga yang telah menerima bulan ini</div>
+    </div>
+  </div>
+
+  <!-- Pencarian & Filter Batch -->
+  <div style="background: white; border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 18px 20px; margin-top: 16px; margin-bottom: 4px; box-shadow: var(--shadow-sm);">
+    <div style="font-size: 13px; font-weight: 700; color: var(--secondary); margin-bottom: 12px;">🔍 Cek Nomor Antrian & Riwayat Distribusi Gas</div>
+    <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+      <input
+        type="text"
+        id="public-search-input"
+        class="input-text"
+        placeholder="Ketik nama Anda untuk cek antrian..."
+        oninput="filterPublicQueue()"
+        style="flex: 1; min-width: 220px;"
+      >
+      <select id="public-batch-filter" class="select-control" onchange="onPublicBatchFilterChange()" style="min-width: 260px;">
+        <option value="">⏳ Memuat daftar batch...</option>
+      </select>
+      <button class="btn btn-outline" onclick="loadPublicData()">🔄 Segarkan</button>
+    </div>
+    <div style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">
+      💡 Ganti pilihan batch di dropdown untuk melihat riwayat pengambilan gas pada Jumat sebelumnya.
+    </div>
+  </div>
+
+  <!-- Tabel Transparansi Antrian Publik -->
+  <div class="table-container">
+    <div style="padding: 16px 20px; border-bottom: 1px solid var(--border-color); background: #F8FAFC; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+      <div>
+        <h3 style="font-size: 16px; font-weight: 700; color: var(--secondary);">
+          Daftar Antrian Warga
+        </h3>
+        <p id="public-batch-caption" style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+          Memuat jadwal antrian...
+        </p>
+      </div>
+      <span class="kpi-badge badge-accent">Sistem Rotasi Adil</span>
+    </div>
+
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width: 70px; text-align: center;">No. Urut</th>
+          <th>Nama Anggota / Warga</th>
+          <th>Alamat / RT RW</th>
+          <th style="text-align: center;">Status Pengambilan</th>
+          <th>Keterangan</th>
+        </tr>
+      </thead>
+      <tbody id="public-queue-table-body">
+        <tr>
+          <td colspan="5" style="text-align: center; padding: 30px; color: var(--text-muted);">
+            Memuat daftar antrian publik...
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Informasi Ketentuan Penyaluran Gas -->
+  <div style="background: white; border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 20px; margin-top: 20px;">
+    <h4 style="font-size: 15px; font-weight: 700; color: var(--secondary); margin-bottom: 10px;">
+      📌 Tata Cara &amp; Ketentuan Pengambilan Gas LPG 3Kg:
+    </h4>
+    <ul style="padding-left: 20px; font-size: 13px; color: var(--text-muted); line-height: 1.8;">
+      <li>Warga yang namanya tertera pada nomor antrian di atas dapat mengambil gas di <strong>Kantor KDMP Desa Gulun</strong> mulai pukul 16:00 WIB pada hari Jumat yang tertera.</li>
+      <li>Setiap anggota wajib membawa <strong>1 tabung kosong</strong> dalam kondisi baik dan <strong>uang pas <span class="dynamic-price">Rp 20.000</span></strong> (atau pembayaran via QRIS).</li>
+      <li>Bagi anggota yang berhalangan hadir dan ingin mewakilkan atau mengalihkan ke anggota lain, harap memberitahukan pengurus koperasi di lokasi.</li>
+      <li>Anggota yang belum mendapat giliran di minggu ini akan otomatis menjadi prioritas terdepan pada jadwal pengiriman berikutnya.</li>
+    </ul>
+  </div>
+</div>

@@ -1,0 +1,184 @@
+<div id="tab-queue" class="tab-pane">
+  <!-- Toolbar Kontrol Batch -->
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <label for="select-batch" class="form-label" style="margin-bottom: 0;">Pilih Batch:</label>
+      <select id="select-batch" class="select-control" onchange="loadQueueData()">
+        <option value="">Memuat daftar batch...</option>
+      </select>
+      <button class="btn btn-outline btn-sm" onclick="openNewBatchModal()">+ Batch Baru</button>
+    </div>
+
+    <div class="toolbar-right">
+      <button class="btn btn-primary" onclick="triggerAutoGenerateQueue()">
+        ⚡ Generate Antrian (25 Tabung)
+      </button>
+      <button class="btn btn-outline" onclick="copyQueueToWhatsApp()">
+        📢 Salin Teks WA
+      </button>
+      <button class="btn btn-outline" onclick="window.print()">
+        🖨️ Cetak
+      </button>
+    </div>
+  </div>
+
+  <!-- Batch Info Banner -->
+  <div id="batch-info-card" class="kpi-card" style="margin-bottom: 20px; display: none;">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+      <div>
+        <span class="kpi-label">STATUS PENGIRIMAN BATCH</span>
+        <h2 id="batch-title" style="font-size: 20px; font-weight: 700; margin-top: 4px;">-</h2>
+        <p id="batch-details" class="kpi-desc">-</p>
+      </div>
+      <div style="display: flex; gap: 16px; text-align: center;">
+        <div>
+          <div class="kpi-label">TOTAL STOK</div>
+          <div id="batch-total-stok" style="font-size: 22px; font-weight: 800; color: var(--secondary);">-</div>
+        </div>
+        <div>
+          <div class="kpi-label">TERAMBIL</div>
+          <div id="batch-terambil" style="font-size: 22px; font-weight: 800; color: var(--success);">-</div>
+        </div>
+        <div>
+          <div class="kpi-label">SISA KUOTA</div>
+          <div id="batch-sisa" style="font-size: 22px; font-weight: 800; color: var(--primary);">-</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Queue Cards Container -->
+  <div id="queue-container">
+    <div id="queue-loading" style="text-align: center; padding: 40px; color: var(--text-muted);">
+      Memuat daftar antrian...
+    </div>
+    <div id="queue-cards-grid" class="queue-grid" style="display: none;"></div>
+    <div id="queue-empty" style="display: none; text-align: center; padding: 50px; background: white; border-radius: var(--radius-lg); border: 1px dashed var(--border-color);">
+      <h3 style="color: var(--secondary); margin-bottom: 8px;">Belum Ada Antrian untuk Batch Ini</h3>
+      <p style="color: var(--text-muted); margin-bottom: 16px; font-size: 14px;">Klik tombol "Generate Antrian" untuk otomatis memilih 25 anggota dengan prioritas paling adil.</p>
+      <button class="btn btn-primary" onclick="triggerAutoGenerateQueue()">⚡ Generate 25 Antrian Sekarang</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Buat Batch Baru -->
+<div id="modal-new-batch" class="modal-backdrop">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h3 class="modal-title">Buat Batch Pengiriman Gas Baru</h3>
+      <button class="modal-close" onclick="closeModal('modal-new-batch')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Tanggal Jadwal Kedatangan (Jumat):</label>
+        <input type="date" id="new-batch-date" class="input-text" style="width: 100%;">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Waktu Kirim:</label>
+        <input type="text" id="new-batch-time" class="input-text" style="width: 100%;" value="16:00 WIB">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Jumlah Kuota Tabung:</label>
+        <input type="number" id="new-batch-quota" class="input-text" style="width: 100%;" value="25">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-new-batch')">Batal</button>
+      <button class="btn btn-primary" onclick="submitNewBatch()">Simpan Batch</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Konfirmasi Pengambilan & Kasir -->
+<div id="modal-pickup" class="modal-backdrop">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h3 class="modal-title">Konfirmasi Pengambilan & Pembayaran</h3>
+      <button class="modal-close" onclick="closeModal('modal-pickup')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="pickup-queue-id">
+      <div style="background: #F8FAFC; padding: 12px; border-radius: var(--radius-sm); margin-bottom: 14px;">
+        <div style="font-size: 12px; color: var(--text-muted);">Antrian: <span id="pickup-queue-no" style="font-weight: 700;">#</span></div>
+        <div id="pickup-member-name" style="font-size: 16px; font-weight: 700; color: var(--secondary);">-</div>
+        <div id="pickup-member-address" style="font-size: 12px; color: var(--text-muted);">-</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Metode Pembayaran:</label>
+        <select id="pickup-payment-method" class="select-control" style="width: 100%;">
+          <option value="TUNAI">TUNAI / CASH</option>
+          <option value="QRIS">QRIS / NON-TUNAI</option>
+          <option value="TRANSFER">TRANSFER BANK</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Nama Orang yang Mengambil (Fisik):</label>
+        <input type="text" id="pickup-collector-name" class="input-text" style="width: 100%;" placeholder="Nama pengambil / wakil">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Harga Gas:</label>
+        <input type="text" id="pickup-price" class="input-text" style="width: 100%;" value="20000">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-pickup')">Batal</button>
+      <button class="btn btn-success" onclick="submitPickup()">✓ Serahkan Gas & Selesai</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Ganti Penerima (Replace Member) -->
+<div id="modal-replace" class="modal-backdrop">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h3 class="modal-title">Ganti Anggota Penerima Gas</h3>
+      <button class="modal-close" onclick="closeModal('modal-replace')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="replace-queue-id">
+      <div style="background: #FEF3C7; color: #92400E; padding: 10px; border-radius: var(--radius-sm); font-size: 12px; margin-bottom: 14px;">
+        💡 <strong>Info:</strong> Kuota dan rekap pembelian akan dicatatkan pada anggota pengganti yang dipilih. Anggota awal tetap berstatus belum dapat sehingga akan diprioritaskan di batch berikutnya.
+      </div>
+      <div class="form-group">
+        <label class="form-label">Anggota Pengganti:</label>
+        <select id="replace-new-member" class="select-control" style="width: 100%;">
+          <option value="">Pilih anggota pengganti...</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Alasan Penggantian / Keterangan:</label>
+        <input type="text" id="replace-reason" class="input-text" style="width: 100%;" placeholder="Misal: Sedang di luar kota, jatah dialihkan">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-replace')">Batal</button>
+      <button class="btn btn-primary" onclick="submitReplace()">Simpan Penggantian</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Tukar Nomor Urut (Swap Position) -->
+<div id="modal-swap" class="modal-backdrop">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h3 class="modal-title">Tukar Nomor Urut Antrian</h3>
+      <button class="modal-close" onclick="closeModal('modal-swap')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="swap-queue-id1">
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+        Tukar urutan antrian <strong id="swap-source-info">-</strong> dengan slot berikut:
+      </p>
+      <div class="form-group">
+        <label class="form-label">Pilih Nomor Antrian Target yang Akan Ditukar:</label>
+        <select id="swap-target-queue" class="select-control" style="width: 100%;">
+          <option value="">Pilih slot target...</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-swap')">Batal</button>
+      <button class="btn btn-primary" onclick="submitSwap()">Tukar Posisi Sekarang</button>
+    </div>
+  </div>
+</div>

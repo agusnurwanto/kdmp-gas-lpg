@@ -1,0 +1,1084 @@
+<script>
+  // State Global Frontend
+  let currentBatches = [];
+  let currentQueue = [];
+  let allMembersCache = [];
+  let selectedBatchId = "";
+  let publicQueueCache = [];
+  let isAdmin = false;
+
+  // Pengaturan Aplikasi dari Database (default sebelum dimuat)
+  let appSettings = {
+    HARGA_PER_TABUNG: "20000",
+    KUOTA_PER_BATCH: "25",
+    NAMA_KOPERASI: "Koperasi Desa Merah Putih (KDMP) Desa Gulun"
+  };
+
+  function getHargaFormatted() {
+    const harga = parseInt(appSettings.HARGA_PER_TABUNG) || 20000;
+    return "Rp " + harga.toLocaleString("id-ID");
+  }
+
+  // Inisialisasi saat halaman dimuat
+  document.addEventListener("DOMContentLoaded", function() {
+    initApp();
+  });
+
+  function initApp() {
+    checkAuth();
+    // Load pengaturan dari database terlebih dahulu
+    google.script.run
+      .withSuccessHandler(function(settings) {
+        if (settings) appSettings = settings;
+        applySettingsToUI();
+        loadPublicData();
+        if (isAdmin) {
+          loadBatches();
+          loadDashboardData();
+          loadMembersData();
+        }
+      })
+      .withFailureHandler(function() {
+        // Gunakan default jika gagal
+        applySettingsToUI();
+        loadPublicData();
+        if (isAdmin) {
+          loadBatches();
+          loadDashboardData();
+          loadMembersData();
+        }
+      })
+      .getAppSettings();
+  }
+
+  function applySettingsToUI() {
+    // Update harga di semua elemen yang menampilkan harga
+    const hargaFmt = getHargaFormatted();
+    var priceEls = document.querySelectorAll(".dynamic-price");
+    for (var i = 0; i < priceEls.length; i++) {
+      priceEls[i].textContent = hargaFmt;
+    }
+    // Update harga default di input modal pickup
+    var pickupPrice = document.getElementById("pickup-price");
+    if (pickupPrice) pickupPrice.value = appSettings.HARGA_PER_TABUNG || "20000";
+  }
+
+  // ==========================================
+  // AUTENTIKASI ADMIN & SESSI PENGURUS
+  // ==========================================
+
+  function checkAuth() {
+    const token = sessionStorage.getItem("KDMP_ADMIN_TOKEN");
+    isAdmin = !!token;
+    updateAuthUI();
+  }
+
+  function updateAuthUI() {
+    const adminTabs = document.querySelectorAll(".admin-tab");
+    const btnLogin = document.getElementById("btn-login-modal");
+    const adminBadge = document.getElementById("admin-badge-group");
+
+    // Tab publik: tab-public-home dan tab-dashboard
+    var adminOnlyTabs = ["tab-queue", "tab-members", "tab-settings"];
+
+    if (isAdmin) {
+      adminTabs.forEach(function(t) { t.style.display = "inline-block"; });
+      if (btnLogin) btnLogin.style.display = "none";
+      if (adminBadge) adminBadge.style.display = "flex";
+      // Tampilkan kolom WA dan tombol CSV
+      var waCol = document.getElementById("report-col-wa");
+      if (waCol) waCol.style.display = "";
+      var csvBtn = document.getElementById("btn-export-csv");
+      if (csvBtn) csvBtn.style.display = "";
+    } else {
+      adminTabs.forEach(function(t) { t.style.display = "none"; });
+      if (btnLogin) btnLogin.style.display = "inline-block";
+      if (adminBadge) adminBadge.style.display = "none";
+      // Sembunyikan kolom WA dan tombol CSV untuk publik
+      var waCol = document.getElementById("report-col-wa");
+      if (waCol) waCol.style.display = "none";
+      var csvBtn = document.getElementById("btn-export-csv");
+      if (csvBtn) csvBtn.style.display = "none";
+
+      // Jika tab aktif saat ini adalah tab admin-only, kembalikan ke public home
+      var currentActive = document.querySelector(".tab-pane.active");
+      if (currentActive && adminOnlyTabs.indexOf(currentActive.id) !== -1) {
+        switchTab("tab-public-home");
+      }
+    }
+    // Setelah update auth, render ulang tabel laporan jika ada cache
+    if (allMembersCache.length > 0) renderReportTable(allMembersCache);
+  }
+
+  function openLoginModal() {
+    document.getElementById("login-pin-input").value = "";
+    openModal("modal-login");
+    setTimeout(() => {
+      document.getElementById("login-pin-input").focus();
+    }, 200);
+  }
+
+  function submitLoginAdmin() {
+    const pin = document.getElementById("login-pin-input").value;
+    if (!pin) {
+      showToast("Harap masukkan PIN Admin.", true);
+      return;
+    }
+
+    showToast("Memverifikasi PIN Admin...");
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res.success) {
+          sessionStorage.setItem("KDMP_ADMIN_TOKEN", res.token);
+          isAdmin = true;
+          closeModal("modal-login");
+          updateAuthUI();
+          showToast(res.message);
+          
+          // Muat data admin dan pindah ke tab antrian
+          loadBatches();
+          loadDashboardData();
+          loadMembersData();
+          switchTab("tab-queue");
+        } else {
+          showToast(res.message, true);
+        }
+      })
+      .withFailureHandler(function(err) {
+        showToast(err.message, true);
+      })
+      .loginAdmin(pin);
+  }
+
+  function logoutAdmin() {
+    sessionStorage.removeItem("KDMP_ADMIN_TOKEN");
+    isAdmin = false;
+    updateAuthUI();
+    switchTab("tab-public-home");
+    showToast("Anda telah keluar dari mode admin.");
+  }
+
+  function submitChangePin() {
+    const oldPin = document.getElementById("input-old-pin").value;
+    const newPin = document.getElementById("input-new-pin").value;
+
+    if (!oldPin || !newPin) {
+      alert("Harap isi PIN Lama dan PIN Baru.");
+      return;
+    }
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res.success) {
+          showToast(res.message);
+          document.getElementById("input-old-pin").value = "";
+          document.getElementById("input-new-pin").value = "";
+        } else {
+          showToast(res.message, true);
+        }
+      })
+      .withFailureHandler(function(err) {
+        showToast(err.message, true);
+      })
+      .changeAdminPin(oldPin, newPin);
+  }
+
+  // ==========================================
+  // NAVIGASI TAB & UI UTILS
+  // ==========================================
+
+  // Tab yang hanya boleh diakses admin
+  var ADMIN_ONLY_TABS = ["tab-queue", "tab-members", "tab-settings"];
+
+  function switchTab(tabId) {
+    // Validasi hak akses jika tab admin-only dibuka oleh tamu
+    if (ADMIN_ONLY_TABS.indexOf(tabId) !== -1 && !isAdmin) {
+      openLoginModal();
+      return;
+    }
+
+    document.querySelectorAll(".tab-pane").forEach(function(el) { el.classList.remove("active"); });
+    document.querySelectorAll(".tab-btn").forEach(function(el) { el.classList.remove("active"); });
+
+    var targetTab = document.getElementById(tabId);
+    if (targetTab) targetTab.classList.add("active");
+
+    var activeBtn = Array.from(document.querySelectorAll(".tab-btn")).find(function(btn) {
+      return btn.getAttribute("onclick") && btn.getAttribute("onclick").includes(tabId);
+    });
+    if (activeBtn) activeBtn.classList.add("active");
+
+    if (tabId === "tab-public-home") loadPublicData();
+    if (tabId === "tab-dashboard") loadDashboardData();
+    if (tabId === "tab-members" && isAdmin) loadMembersData();
+    if (tabId === "tab-queue" && isAdmin && selectedBatchId) loadQueueData();
+  }
+
+  function showToast(message, isError = false) {
+    const toast = document.getElementById("app-toast");
+    toast.textContent = (isError ? "❌ " : "✅ ") + message;
+    toast.style.background = isError ? "var(--danger)" : "var(--secondary)";
+    toast.classList.add("show");
+    setTimeout(() => {
+      toast.classList.remove("show");
+    }, 4000);
+  }
+
+  function openModal(modalId) {
+    const m = document.getElementById(modalId);
+    if (m) m.classList.add("show");
+  }
+
+  function closeModal(modalId) {
+    const m = document.getElementById(modalId);
+    if (m) m.classList.remove("show");
+  }
+
+  // ==========================================
+  // BERANDA PUBLIK (UNTUK WARGA / UMUM)
+  // ==========================================
+
+  // Cache semua batch untuk dropdown filter publik
+  var allBatchesCache = [];
+
+  function loadPublicData() {
+    google.script.run
+      .withSuccessHandler(function(summary) {
+        document.getElementById("public-stat-month-quota").textContent =
+          (summary.totalGasDistributedMonth || 0) + " / " + (summary.monthlyTargetQuota || 100) + " Tabung";
+        document.getElementById("public-stat-served-count").textContent =
+          (summary.servedCountMonth || 0) + " Warga";
+
+        if (summary.recentBatches && summary.recentBatches.length > 0) {
+          // Populate dropdown filter batch
+          populateBatchFilter(summary.recentBatches);
+
+          var latestBatch = summary.recentBatches[0];
+          document.getElementById("public-stat-batch-date").textContent = latestBatch.tgl_jadwal;
+          document.getElementById("public-stat-batch-time").textContent = latestBatch.hari + ", " + latestBatch.waktu_kirim;
+          document.getElementById("public-stat-batch-stock").textContent = latestBatch.sisa_stok + " Tabung";
+          document.getElementById("public-stat-batch-progress").textContent = "Terambil: " + latestBatch.jumlah_terambil + " / " + latestBatch.jumlah_stok;
+          document.getElementById("public-batch-caption").textContent =
+            "Batch: " + latestBatch.id_batch + " \u2022 Jadwal: " + latestBatch.tgl_jadwal + " (" + latestBatch.waktu_kirim + ")";
+
+          // Jika dropdown sudah ada nilai terpilih, gunakan itu; jika tidak, gunakan batch terbaru
+          var filterEl = document.getElementById("public-batch-filter");
+          var batchToLoad = (filterEl && filterEl.value) ? filterEl.value : latestBatch.id_batch;
+          loadPublicQueue(batchToLoad);
+        } else {
+          document.getElementById("public-stat-batch-date").textContent = "Belum Ada";
+          document.getElementById("public-stat-batch-stock").textContent = "0 Tabung";
+          document.getElementById("public-batch-caption").textContent = "Belum ada jadwal batch pengiriman aktif.";
+          var filterEl = document.getElementById("public-batch-filter");
+          if (filterEl) filterEl.innerHTML = "<option value=''>Belum ada batch</option>";
+          renderPublicQueueTable([]);
+        }
+      })
+      .withFailureHandler(function(err) {
+        console.error(err);
+      })
+      .getDashboardSummary();
+  }
+
+  function populateBatchFilter(batches) {
+    allBatchesCache = batches;
+    var filterEl = document.getElementById("public-batch-filter");
+    if (!filterEl) return;
+    var currentVal = filterEl.value;
+    filterEl.innerHTML = "";
+    batches.forEach(function(b, idx) {
+      var opt = document.createElement("option");
+      opt.value = b.id_batch;
+      var label = "\uD83D\uDCC5 " + b.tgl_jadwal + " (" + b.hari + ", " + b.waktu_kirim + ")";
+      if (idx === 0) label += " — Terbaru";
+      var done = parseInt(b.jumlah_terambil) || 0;
+      var total = parseInt(b.jumlah_stok) || 25;
+      label += " [" + done + "/" + total + " terambil]";
+      opt.textContent = label;
+      if (currentVal ? b.id_batch === currentVal : idx === 0) opt.selected = true;
+      filterEl.appendChild(opt);
+    });
+  }
+
+  function onPublicBatchFilterChange() {
+    var filterEl = document.getElementById("public-batch-filter");
+    var batchId = filterEl ? filterEl.value : "";
+    if (!batchId) return;
+
+    // Update info batch card sesuai pilihan
+    var selected = allBatchesCache.find(function(b) { return b.id_batch === batchId; });
+    if (selected) {
+      document.getElementById("public-stat-batch-date").textContent = selected.tgl_jadwal;
+      document.getElementById("public-stat-batch-time").textContent = selected.hari + ", " + selected.waktu_kirim;
+      document.getElementById("public-stat-batch-stock").textContent = selected.sisa_stok + " Tabung";
+      document.getElementById("public-stat-batch-progress").textContent = "Terambil: " + selected.jumlah_terambil + " / " + selected.jumlah_stok;
+      document.getElementById("public-batch-caption").textContent =
+        "Batch: " + selected.id_batch + " \u2022 Jadwal: " + selected.tgl_jadwal + " (" + selected.waktu_kirim + ")";
+    }
+
+    // Reset search lalu muat antrian batch yang dipilih
+    var searchEl = document.getElementById("public-search-input");
+    if (searchEl) searchEl.value = "";
+    loadPublicQueue(batchId);
+  }
+
+  function loadPublicQueue(batchId) {
+    var tbody = document.getElementById("public-queue-table-body");
+    if (tbody) tbody.innerHTML = "<tr><td colspan='5' style='text-align:center;padding:20px;color:var(--text-muted);'>Memuat antrian...</td></tr>";
+    google.script.run
+      .withSuccessHandler(function(queueList) {
+        publicQueueCache = queueList || [];
+        renderPublicQueueTable(publicQueueCache);
+      })
+      .withFailureHandler(function(err) {
+        console.error(err);
+      })
+      .getQueueByBatch(batchId);
+  }
+
+  function renderPublicQueueTable(items) {
+    var tbody = document.getElementById("public-queue-table-body");
+    tbody.innerHTML = "";
+
+    if (!items || items.length === 0) {
+      tbody.innerHTML = "<tr><td colspan='5' style='text-align: center; padding: 25px; color: var(--text-muted);'>Belum ada antrian yang dibuat untuk batch ini.</td></tr>";
+      return;
+    }
+
+    items.forEach(function(item) {
+      var tr = document.createElement("tr");
+      var isDone = item.status_antrian === "SUDAH_DIAMBIL";
+      var statusBadge = isDone
+        ? "<span class='kpi-badge badge-success'>&#10003; Sudah Diambil</span>"
+        : "<span class='kpi-badge badge-accent'>&#9203; Menunggu Ambil</span>";
+
+      var note = "-";
+      if (isDone && item.waktu_ambil) {
+        note = "Diambil: " + item.waktu_ambil;
+      } else if (item.is_replaced && item.keterangan_penyesuaian) {
+        note = "Pengganti: " + item.keterangan_penyesuaian;
+      }
+
+      tr.innerHTML =
+        "<td style='text-align:center;font-weight:800;color:var(--secondary);'>#" + item.no_urut + "</td>" +
+        "<td style='font-weight:700;'>" + item.nama_anggota_penerima + "</td>" +
+        "<td>" + item.rt_rw_penerima + "</td>" +
+        "<td style='text-align:center;'>" + statusBadge + "</td>" +
+        "<td style='font-size:12px;color:var(--text-muted);'>" + note + "</td>";
+      tbody.appendChild(tr);
+    });
+  }
+
+  function filterPublicQueue() {
+    var query = document.getElementById("public-search-input").value.toLowerCase().trim();
+    if (!query) {
+      renderPublicQueueTable(publicQueueCache);
+      return;
+    }
+    var filtered = publicQueueCache.filter(function(item) {
+      return item.nama_anggota_penerima.toLowerCase().includes(query) ||
+             item.id_anggota_penerima.toLowerCase().includes(query) ||
+             item.rt_rw_penerima.toLowerCase().includes(query);
+    });
+    renderPublicQueueTable(filtered);
+  }
+
+  // ==========================================
+  // MANAJEMEN BATCH & ANTRIAN (ADMIN ONLY)
+  // ==========================================
+
+  function loadBatches() {
+    if (!isAdmin) return;
+    google.script.run
+      .withSuccessHandler(function(batches) {
+        currentBatches = batches || [];
+        const select = document.getElementById("select-batch");
+        select.innerHTML = "";
+
+        if (currentBatches.length === 0) {
+          select.innerHTML = "<option value=''>Belum ada batch. Buat batch baru!</option>";
+          document.getElementById("queue-empty").style.display = "block";
+          document.getElementById("queue-loading").style.display = "none";
+          return;
+        }
+
+        currentBatches.forEach((b, index) => {
+          const opt = document.createElement("option");
+          opt.value = b.id_batch;
+          opt.textContent = `${b.id_batch} - ${b.tgl_jadwal} (${b.hari}, ${b.waktu_kirim}) [Stok: ${b.sisa_stok}/${b.jumlah_stok}]`;
+          if (index === 0) opt.selected = true;
+          select.appendChild(opt);
+        });
+
+        selectedBatchId = select.value;
+        updateBatchInfoCard();
+        loadQueueData();
+      })
+      .withFailureHandler(function(err) {
+        showToast(err.message, true);
+      })
+      .getAllBatches();
+  }
+
+  function updateBatchInfoCard() {
+    const batch = currentBatches.find(b => b.id_batch === selectedBatchId);
+    const card = document.getElementById("batch-info-card");
+    if (!batch) {
+      card.style.display = "none";
+      return;
+    }
+
+    card.style.display = "block";
+    document.getElementById("batch-title").textContent = `Batch Gas LPG: ${batch.tgl_jadwal} (${batch.hari}, ${batch.waktu_kirim})`;
+    document.getElementById("batch-details").textContent = `ID: ${batch.id_batch} • Status: ${batch.status_batch}`;
+    document.getElementById("batch-total-stok").textContent = batch.jumlah_stok + " Tabung";
+    document.getElementById("batch-terambil").textContent = batch.jumlah_terambil + " Terambil";
+    document.getElementById("batch-sisa").textContent = batch.sisa_stok + " Sisa";
+  }
+
+  function loadQueueData() {
+    if (!isAdmin) return;
+    const select = document.getElementById("select-batch");
+    selectedBatchId = select.value;
+    if (!selectedBatchId) return;
+
+    updateBatchInfoCard();
+
+    document.getElementById("queue-loading").style.display = "block";
+    document.getElementById("queue-cards-grid").style.display = "none";
+    document.getElementById("queue-empty").style.display = "none";
+
+    google.script.run
+      .withSuccessHandler(function(queueList) {
+        document.getElementById("queue-loading").style.display = "none";
+        currentQueue = queueList || [];
+
+        if (currentQueue.length === 0) {
+          document.getElementById("queue-empty").style.display = "block";
+          return;
+        }
+
+        renderQueueCards(currentQueue);
+      })
+      .withFailureHandler(function(err) {
+        document.getElementById("queue-loading").style.display = "none";
+        showToast(err.message, true);
+      })
+      .getQueueByBatch(selectedBatchId);
+  }
+
+  function renderQueueCards(items) {
+    const grid = document.getElementById("queue-cards-grid");
+    grid.innerHTML = "";
+    grid.style.display = "grid";
+
+    const batch = currentBatches.find(b => b.id_batch === selectedBatchId);
+    const batchDateStr = batch ? `${batch.tgl_jadwal} (${batch.waktu_kirim})` : "Jumat Sore";
+
+    items.forEach(item => {
+      const card = document.createElement("div");
+      let statusClass = "status-menunggu";
+      let statusBadge = "<span class='kpi-badge badge-accent'>Menunggu</span>";
+
+      if (item.status_antrian === "SUDAH_DIAMBIL") {
+        statusClass = "status-sudah";
+        statusBadge = "<span class='kpi-badge badge-success'>✓ Sudah Diambil</span>";
+      } else if (item.status_antrian === "DIGANTIKAN") {
+        statusClass = "status-digantikan";
+        statusBadge = "<span class='kpi-badge badge-warning'>Ditukar Penerima</span>";
+      } else if (item.status_antrian === "BATAL_LEWAT") {
+        statusClass = "status-batal";
+        statusBadge = "<span class='kpi-badge' style='background:#FEE2E2; color:#DC2626;'>Dibatalkan</span>";
+      }
+
+      card.className = `queue-card ${statusClass}`;
+      card.id = `card-queue-${item.id_antrian}`;
+
+      let replacedHtml = "";
+      if (item.is_replaced) {
+        replacedHtml = `
+          <div class="queue-replaced-info">
+            ⚠️ <em>Jatah Asli:</em> <strong>${item.nama_anggota_asli}</strong><br>
+            <span style="font-size: 10px;">${item.keterangan_penyesuaian}</span>
+          </div>
+        `;
+      }
+
+      // Keterangan status WA terakhir
+      const hasWa = item.waktu_terakhir_wa && item.waktu_terakhir_wa !== "-";
+      const waBadge = hasWa
+        ? `<span id="wa-badge-${item.id_antrian}" class="kpi-badge badge-success" style="font-size: 11px;">📱 WA: ${item.waktu_terakhir_wa}</span>`
+        : `<span id="wa-badge-${item.id_antrian}" class="kpi-badge" style="font-size: 11px; background:#F1F5F9; color:#64748B;">📱 Belum di-WA</span>`;
+
+      let actionsHtml = "";
+      if (item.status_antrian !== "SUDAH_DIAMBIL") {
+        actionsHtml = `
+          <div class="queue-actions" style="flex-wrap: wrap;">
+            <button class="btn btn-outline btn-sm" style="color:#0284C7;" onclick="sendPersonalWaReminder('${item.id_antrian}', '${item.no_whatsapp}', '${escapeQuotes(item.nama_anggota_penerima)}', ${item.no_urut}, '${escapeQuotes(batchDateStr)}')">
+              💬 Kirim WA
+            </button>
+            <button class="btn btn-outline btn-sm" onclick="openSwapModal('${item.id_antrian}', ${item.no_urut}, '${escapeQuotes(item.nama_anggota_penerima)}')">⇄ Tukar</button>
+            <button class="btn btn-outline btn-sm" onclick="openReplaceModal('${item.id_antrian}', '${item.id_anggota_penerima}')">✎ Ganti Orang</button>
+            <button class="btn btn-success btn-sm" onclick="openPickupModal('${item.id_antrian}', ${item.no_urut}, '${escapeQuotes(item.nama_anggota_penerima)}', '${escapeQuotes(item.rt_rw_penerima)}')">✓ Ambil & Bayar</button>
+          </div>
+        `;
+      } else {
+        actionsHtml = `
+          <div class="queue-actions">
+            <span style="font-size: 11px; color: var(--success); font-weight: 600;">Diambil: ${item.waktu_ambil}</span>
+          </div>
+        `;
+      }
+
+      card.innerHTML = `
+        <div>
+          <div class="queue-header">
+            <div class="queue-number">#${item.no_urut}</div>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              ${waBadge}
+              ${statusBadge}
+            </div>
+          </div>
+          <div class="queue-member-name">${item.nama_anggota_penerima}</div>
+          <div class="queue-member-sub">${item.id_anggota_penerima} • ${item.rt_rw_penerima}</div>
+          <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">WA: ${item.no_whatsapp || "-"}</div>
+          ${replacedHtml}
+        </div>
+        ${actionsHtml}
+      `;
+
+      grid.appendChild(card);
+    });
+  }
+
+  // ==========================================
+  // FITUR KIRIM WHATSAPP PENGINGAT PERSONAL
+  // ==========================================
+
+  function sendPersonalWaReminder(queueId, phone, name, noUrut, batchDate) {
+    if (!phone || phone === "-" || phone.trim() === "") {
+      alert("Nomor WhatsApp untuk " + name + " belum terdaftar. Silakan lengkapi kontak di menu Data Anggota.");
+      return;
+    }
+
+    // Bersihkan nomor HP
+    var cleanPhone = phone.replace(/[^0-9]/g, "");
+    if (cleanPhone.startsWith("0")) {
+      cleanPhone = "62" + cleanPhone.substring(1);
+    }
+
+    // Harga dari pengaturan database
+    var hargaFmt = getHargaFormatted();
+
+    // Template pesan WhatsApp resmi & ramah (tanpa template literal untuk hindari parse error GAS)
+    var msg = "Halo Bpk/Ibu *" + name + "*,\n\n";
+    msg += "Kami dari *" + appSettings.NAMA_KOPERASI + "* ingin menginformasikan bahwa pasokan gas LPG 3kg telah tiba di pangkalan.\n\n";
+    msg += "\u{1F4CB} *No. Antrian Anda:* #" + noUrut + "\n";
+    msg += "\u{1F4C5} *Jadwal Pengambilan:* " + batchDate + "\n";
+    msg += "\u{1F4CD} *Lokasi:* Kantor KDMP Desa Gulun\n";
+    msg += "\u{1F4B0} *Harga Resmi:* " + hargaFmt + " / tabung\n\n";
+    msg += "Mohon kesediaannya untuk *segera mengambil tabung gas* di lokasi dengan membawa 1 tabung kosong dalam kondisi baik.\n\n";
+    msg += "Terima kasih atas kerja samanya! \u{1F64F}\n";
+    msg += "_Pengurus KDMP Desa Gulun_";
+
+    var waUrl = "https://api.whatsapp.com/send?phone=" + cleanPhone + "&text=" + encodeURIComponent(msg);
+    window.open(waUrl, "_blank");
+
+    // Catat waktu pengiriman ke server Spreadsheet secara instan
+    var capturedName = name;
+    var capturedQueueId = queueId;
+    google.script.run
+      .withSuccessHandler(function(res) {
+        showToast("Pesan WA pengingat telah dikirim ke " + capturedName + "!");
+        // Update badge UI secara langsung
+        var badge = document.getElementById("wa-badge-" + capturedQueueId);
+        if (badge) {
+          badge.className = "kpi-badge badge-success";
+          badge.textContent = "\u{1F4F1} WA: " + (res ? res.timestamp : "-");
+        }
+      })
+      .withFailureHandler(function(err) {
+        console.error("Gagal mencatat timestamp WA:", err);
+      })
+      .recordWaSent(capturedQueueId);
+  }
+
+  function triggerAutoGenerateQueue() {
+    if (!selectedBatchId) {
+      showToast("Pilih atau buat batch terlebih dahulu.", true);
+      return;
+    }
+
+    if (confirm(`Generate 25 antrian otomatis untuk ${selectedBatchId} berdasarkan urutan prioritas adil?`)) {
+      showToast("Sedang menghitung prioritas & meng-generate antrian...");
+      google.script.run
+        .withSuccessHandler(function(res) {
+          showToast(res.message);
+          loadBatches();
+          loadDashboardData();
+          loadPublicData();
+        })
+        .withFailureHandler(function(err) {
+          showToast(err.message, true);
+        })
+        .generateBatchQueue(selectedBatchId, 25);
+    }
+  }
+
+  // Buat Batch Modal
+  function openNewBatchModal() {
+    const today = new Date();
+    const day = today.getDay();
+    const diff = (5 - day + 7) % 7;
+    today.setDate(today.getDate() + (diff === 0 ? 7 : diff));
+    const nextFriday = today.toISOString().split("T")[0];
+
+    document.getElementById("new-batch-date").value = nextFriday;
+    openModal("modal-new-batch");
+  }
+
+  function submitNewBatch() {
+    const date = document.getElementById("new-batch-date").value;
+    const time = document.getElementById("new-batch-time").value;
+    const quota = document.getElementById("new-batch-quota").value;
+
+    if (!date) {
+      alert("Harap pilih tanggal jadwal kedatangan.");
+      return;
+    }
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        closeModal("modal-new-batch");
+        showToast(res.message);
+        loadBatches();
+        loadPublicData();
+      })
+      .withFailureHandler(function(err) {
+        showToast(err.message, true);
+      })
+      .createBatch(date, time, quota);
+  }
+
+  // Kasir & Ambil Gas Modal
+  function openPickupModal(queueId, noUrut, memberName, rtRw) {
+    document.getElementById("pickup-queue-id").value = queueId;
+    document.getElementById("pickup-queue-no").textContent = "#" + noUrut;
+    document.getElementById("pickup-member-name").textContent = memberName;
+    document.getElementById("pickup-member-address").textContent = rtRw;
+    document.getElementById("pickup-collector-name").value = memberName;
+    openModal("modal-pickup");
+  }
+
+  function submitPickup() {
+    const queueId = document.getElementById("pickup-queue-id").value;
+    const method = document.getElementById("pickup-payment-method").value;
+    const collector = document.getElementById("pickup-collector-name").value;
+    const price = document.getElementById("pickup-price").value;
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        closeModal("modal-pickup");
+        showToast(res.message);
+        loadBatches();
+        loadDashboardData();
+        loadMembersData();
+        loadPublicData();
+      })
+      .withFailureHandler(function(err) {
+        showToast(err.message, true);
+      })
+      .confirmPickupAndPayment({
+        queueId: queueId,
+        paymentMethod: method,
+        collectorName: collector,
+        price: price
+      });
+  }
+
+  // Tukar Urutan Modal
+  function openSwapModal(queueId, currentNo, memberName) {
+    document.getElementById("swap-queue-id1").value = queueId;
+    document.getElementById("swap-source-info").textContent = `#${currentNo} (${memberName})`;
+
+    const select = document.getElementById("swap-target-queue");
+    select.innerHTML = "<option value=''>Pilih antrian tujuan...</option>";
+
+    currentQueue.forEach(item => {
+      if (item.id_antrian !== queueId && item.status_antrian !== "SUDAH_DIAMBIL") {
+        const opt = document.createElement("option");
+        opt.value = item.id_antrian;
+        opt.textContent = `#${item.no_urut} - ${item.nama_anggota_penerima} (${item.rt_rw_penerima})`;
+        select.appendChild(opt);
+      }
+    });
+
+    openModal("modal-swap");
+  }
+
+  function submitSwap() {
+    const q1 = document.getElementById("swap-queue-id1").value;
+    const q2 = document.getElementById("swap-target-queue").value;
+
+    if (!q2) {
+      alert("Pilih nomor antrian target yang ingin ditukar.");
+      return;
+    }
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        closeModal("modal-swap");
+        showToast(res.message);
+        loadQueueData();
+        loadPublicData();
+      })
+      .withFailureHandler(function(err) {
+        showToast(err.message, true);
+      })
+      .swapQueuePosition(q1, q2);
+  }
+
+  // Ganti Penerima Modal
+  function openReplaceModal(queueId, currentMemberId) {
+    document.getElementById("replace-queue-id").value = queueId;
+    const select = document.getElementById("replace-new-member");
+    select.innerHTML = "<option value=''>Pilih anggota pengganti...</option>";
+
+    allMembersCache.forEach(m => {
+      if (m.id_anggota !== currentMemberId && m.status_aktif === "AKTIF") {
+        const opt = document.createElement("option");
+        opt.value = m.id_anggota;
+        opt.textContent = `${m.id_anggota} - ${m.nama_lengkap} (${m.rt_rw}) [Bulan ini: ${m.total_beli_bulan_ini}]`;
+        select.appendChild(opt);
+      }
+    });
+
+    openModal("modal-replace");
+  }
+
+  function submitReplace() {
+    const queueId = document.getElementById("replace-queue-id").value;
+    const newMemberId = document.getElementById("replace-new-member").value;
+    const reason = document.getElementById("replace-reason").value;
+
+    if (!newMemberId) {
+      alert("Pilih anggota pengganti terlebih dahulu.");
+      return;
+    }
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        closeModal("modal-replace");
+        showToast(res.message);
+        loadQueueData();
+        loadPublicData();
+      })
+      .withFailureHandler(function(err) {
+        showToast(err.message, true);
+      })
+      .replaceQueueMember(queueId, newMemberId, reason);
+  }
+
+  // Salin Seluruh Daftar Antrian untuk WhatsApp Group
+  function copyQueueToWhatsApp() {
+    if (currentQueue.length === 0) {
+      showToast("Antrian masih kosong.", true);
+      return;
+    }
+
+    var batch = currentBatches.find(function(b) { return b.id_batch === selectedBatchId; });
+    var hargaFmt = getHargaFormatted();
+    var kuota = appSettings.KUOTA_PER_BATCH || "25";
+    var text = "*DAFTAR ANTRIAN GAS LPG 3KG KDMP DESA GULUN*\n";
+    text += "\u{1F4C5} Jadwal: " + (batch ? batch.tgl_jadwal : "-") + " (Jumat Sore, 16:00 WIB)\n";
+    text += "\u{1F4E6} Kuota: " + kuota + " Tabung\n";
+    text += "--------------------------------------\n";
+
+    currentQueue.forEach(function(item) {
+      var statusIcon = item.status_antrian === "SUDAH_DIAMBIL" ? "\u2705" : "\u23F3";
+      text += item.no_urut + ". " + item.nama_anggota_penerima + " (" + item.rt_rw_penerima + ") " + statusIcon + "\n";
+    });
+
+    text += "--------------------------------------\n";
+    text += "_Harap membawa tabung kosong dan uang pas " + hargaFmt + "._\n";
+    text += "_" + appSettings.NAMA_KOPERASI + "_";
+
+    navigator.clipboard.writeText(text).then(function() {
+      showToast("Daftar antrian berhasil disalin! Silakan paste di WhatsApp.");
+    });
+  }
+
+  // ==========================================
+  // DASHBOARD & LAPORAN REKAPITULASI (PUBLIK)
+  // ==========================================
+
+  function loadDashboardData() {
+    // Dashboard dapat dimuat oleh publik maupun admin
+    google.script.run
+      .withSuccessHandler(function(data) {
+        document.getElementById("stat-total-members").textContent = data.totalMembers || 0;
+        document.getElementById("stat-monthly-quota").textContent =
+          (data.totalGasDistributedMonth || 0) + " / " + (data.monthlyTargetQuota || 100);
+        document.getElementById("stat-quota-pct").textContent =
+          (data.quotaFulfillmentPercentage || 0) + "% kuota bulanan terdistribusi";
+        document.getElementById("stat-served-count").textContent = data.servedCountMonth || 0;
+        document.getElementById("stat-unserved-count").textContent = data.unservedCountMonth || 0;
+      })
+      .withFailureHandler(function(err) {
+        console.error(err);
+      })
+      .getDashboardSummary();
+
+    // Muat data anggota (tidak butuh login — no WA tidak ditampilkan untuk publik)
+    google.script.run
+      .withSuccessHandler(function(members) {
+        allMembersCache = members || [];
+        renderReportTable(allMembersCache);
+      })
+      .withFailureHandler(function(err) {
+        console.error("Gagal memuat data anggota:", err);
+      })
+      .getAllMembers();
+  }
+
+  function renderReportTable(members) {
+    var tbody = document.getElementById("report-table-body");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+
+    if (!members || members.length === 0) {
+      tbody.innerHTML = "<tr><td colspan='8' style='text-align: center; padding: 20px;'>Tidak ada data anggota.</td></tr>";
+      return;
+    }
+
+    // Urutkan: belum dapat (prioritas) duluan, kemudian sudah dapat diurutkan abjad nama
+    var sorted = members.slice().sort(function(a, b) {
+      if (a.total_beli_bulan_ini === 0 && b.total_beli_bulan_ini > 0) return -1;
+      if (a.total_beli_bulan_ini > 0 && b.total_beli_bulan_ini === 0) return 1;
+      return a.nama_lengkap.localeCompare(b.nama_lengkap, "id");
+    });
+
+    // Update badge count
+    var countBadge = document.getElementById("report-count-badge");
+    if (countBadge) countBadge.textContent = sorted.length + " anggota";
+
+    sorted.forEach(function(m) {
+      var tr = document.createElement("tr");
+      var isServed = m.total_beli_bulan_ini > 0;
+      var statusBadge = isServed
+        ? "<span class='kpi-badge badge-success'>&#10003; Sudah Ambil (" + m.total_beli_bulan_ini + ")</span>"
+        : "<span class='kpi-badge badge-primary'>&#9203; Belum Dapat (Prioritas)</span>";
+
+      tr.innerHTML =
+        "<td><strong>" + m.id_anggota + "</strong></td>" +
+        "<td style='font-weight:600;'>" + m.nama_lengkap + "</td>" +
+        "<td>" + m.rt_rw + "</td>" +
+        (isAdmin ? "<td>" + (m.no_whatsapp || "-") + "</td>" : "") +
+        "<td style='text-align:center;font-weight:700;color:" + (isServed ? "var(--success)" : "var(--text-muted)") + ";'>" + m.total_beli_bulan_ini + "</td>" +
+        "<td style='text-align:center;font-weight:700;'>" + m.total_beli_kumulatif + "</td>" +
+        "<td>" + (m.tgl_terakhir_beli || "-") + "</td>" +
+        "<td>" + statusBadge + "</td>";
+      tbody.appendChild(tr);
+    });
+  }
+
+  function filterReportTable() {
+    var query = document.getElementById("report-search").value.toLowerCase().trim();
+    var filterStatus = document.getElementById("report-filter-status").value;
+
+    var filtered = allMembersCache.filter(function(m) {
+      var matchSearch = m.nama_lengkap.toLowerCase().includes(query) ||
+                        m.id_anggota.toLowerCase().includes(query) ||
+                        m.rt_rw.toLowerCase().includes(query);
+      var matchStatus = true;
+      if (filterStatus === "UNSERVED") matchStatus = (m.total_beli_bulan_ini === 0);
+      if (filterStatus === "SERVED") matchStatus = (m.total_beli_bulan_ini > 0);
+      return matchSearch && matchStatus;
+    });
+
+    renderReportTable(filtered);
+  }
+
+  function exportReportToCSV() {
+    let csv = "ID Anggota,Nama Lengkap,NIK,RT/RW,No WA,Status,Beli Bulan Ini,Total Kumulatif,Terakhir Beli\n";
+    allMembersCache.forEach(m => {
+      csv += `"${m.id_anggota}","${m.nama_lengkap}","${m.no_ktp}","${m.rt_rw}","${m.no_whatsapp}","${m.status_aktif}",${m.total_beli_bulan_ini},${m.total_beli_kumulatif},"${m.tgl_terakhir_beli}"\n`;
+    });
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `Rekap_Gas_KDMP_Gulun_${new Date().toISOString().split("T")[0]}.csv`;
+    link.click();
+  }
+
+  // ==========================================
+  // DATA MASTER ANGGOTA (ADMIN ONLY)
+  // ==========================================
+
+  function loadMembersData() {
+    if (!isAdmin) return;
+    google.script.run
+      .withSuccessHandler(function(members) {
+        allMembersCache = members || [];
+        renderMemberTable(allMembersCache);
+        renderReportTable(allMembersCache);
+      })
+      .withFailureHandler(function(err) {
+        showToast(err.message, true);
+      })
+      .getAllMembers();
+  }
+
+  function renderMemberTable(members) {
+    const tbody = document.getElementById("member-table-body");
+    tbody.innerHTML = "";
+
+    if (!members || members.length === 0) {
+      tbody.innerHTML = "<tr><td colspan='8' style='text-align:center; padding:20px;'>Belum ada data anggota.</td></tr>";
+      return;
+    }
+
+    members.forEach(m => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><strong>${m.id_anggota}</strong></td>
+        <td style="font-weight: 600;">${m.nama_lengkap}</td>
+        <td>${m.no_ktp || "-"}</td>
+        <td>${m.rt_rw}</td>
+        <td>${m.no_whatsapp || "-"}</td>
+        <td><span class="kpi-badge ${m.status_aktif === 'AKTIF' ? 'badge-success' : 'badge-primary'}">${m.status_aktif}</span></td>
+        <td style="text-align: center; font-weight: 700;">${m.total_beli_kumulatif}</td>
+        <td>
+          <button class="btn btn-outline btn-sm" onclick="openEditMemberModal('${m.id_anggota}')">Edit</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function filterMemberTable() {
+    const query = document.getElementById("member-search").value.toLowerCase().trim();
+    const filterStatus = document.getElementById("member-filter-status").value;
+
+    const filtered = allMembersCache.filter(m => {
+      const matchSearch = m.nama_lengkap.toLowerCase().includes(query) ||
+                          m.no_ktp.toLowerCase().includes(query) ||
+                          m.id_anggota.toLowerCase().includes(query) ||
+                          m.rt_rw.toLowerCase().includes(query);
+
+      let matchStatus = true;
+      if (filterStatus !== "ALL") matchStatus = (m.status_aktif === filterStatus);
+
+      return matchSearch && matchStatus;
+    });
+
+    renderMemberTable(filtered);
+  }
+
+  function openAddMemberModal() {
+    document.getElementById("modal-member-title").textContent = "Tambah Anggota Baru";
+    document.getElementById("form-member-id").value = "";
+    document.getElementById("form-member-name").value = "";
+    document.getElementById("form-member-nik").value = "";
+    document.getElementById("form-member-rt").value = "";
+    document.getElementById("form-member-wa").value = "";
+    document.getElementById("form-member-status").value = "AKTIF";
+    openModal("modal-member");
+  }
+
+  function openEditMemberModal(memberId) {
+    const m = allMembersCache.find(x => x.id_anggota === memberId);
+    if (!m) return;
+
+    document.getElementById("modal-member-title").textContent = `Edit Anggota (${memberId})`;
+    document.getElementById("form-member-id").value = m.id_anggota;
+    document.getElementById("form-member-name").value = m.nama_lengkap;
+    document.getElementById("form-member-nik").value = m.no_ktp;
+    document.getElementById("form-member-rt").value = m.rt_rw;
+    document.getElementById("form-member-wa").value = m.no_whatsapp;
+    document.getElementById("form-member-status").value = m.status_aktif;
+    openModal("modal-member");
+  }
+
+  function saveMemberForm() {
+    const memberId = document.getElementById("form-member-id").value;
+    const data = {
+      nama_lengkap: document.getElementById("form-member-name").value,
+      no_ktp: document.getElementById("form-member-nik").value,
+      rt_rw: document.getElementById("form-member-rt").value,
+      no_whatsapp: document.getElementById("form-member-wa").value,
+      status_aktif: document.getElementById("form-member-status").value
+    };
+
+    if (!data.nama_lengkap) {
+      alert("Nama lengkap wajib diisi.");
+      return;
+    }
+
+    if (memberId) {
+      // Update
+      google.script.run
+        .withSuccessHandler(function(res) {
+          closeModal("modal-member");
+          showToast(res.message);
+          loadMembersData();
+        })
+        .withFailureHandler(function(err) {
+          showToast(err.message, true);
+        })
+        .updateMember(memberId, data);
+    } else {
+      // Add
+      google.script.run
+        .withSuccessHandler(function(res) {
+          closeModal("modal-member");
+          showToast(res.message);
+          loadMembersData();
+        })
+        .withFailureHandler(function(err) {
+          showToast(err.message, true);
+        })
+        .addMember(data);
+    }
+  }
+
+  function confirmResetMonth() {
+    if (confirm("Apakah Anda yakin ingin mereset kuota bulanan? Kolom 'total_beli_bulan_ini' akan di-set menjadi 0 untuk semua anggota agar giliran bulan baru dimulai.")) {
+      showToast("Sedang mereset kuota bulanan...");
+      google.script.run
+        .withSuccessHandler(function(res) {
+          showToast(res.message);
+          loadMembersData();
+          loadDashboardData();
+          loadPublicData();
+        })
+        .withFailureHandler(function(err) {
+          showToast(err.message, true);
+        })
+        .resetMonthlyQuota();
+    }
+  }
+
+  function importFromReference() {
+    if (confirm("Salin data anggota warga Desa Gulun dari sheet 'template_simkopdes' ke dalam database? Data referensi asli tidak akan diubah.")) {
+      showToast("Sedang membaca & menyalin data dari sheet template_simkopdes...");
+      google.script.run
+        .withSuccessHandler(function(res) {
+          showToast(res.message);
+          loadMembersData();
+          loadDashboardData();
+          loadPublicData();
+        })
+        .withFailureHandler(function(err) {
+          showToast(err.message, true);
+        })
+        .importMembersFromReference(null, "template_simkopdes");
+    }
+  }
+
+  function escapeQuotes(str) {
+    if (!str) return "";
+    return str.replace(/'/g, "\\'");
+  }
+</script>

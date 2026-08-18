@@ -1,0 +1,124 @@
+<div id="tab-members" class="tab-pane">
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <input type="text" id="member-search" class="input-text" placeholder="🔍 Cari nama / NIK..."
+        oninput="filterMemberTable()" style="min-width: 240px;">
+      <select id="member-filter-status" class="select-control" onchange="filterMemberTable()">
+        <option value="ALL">Semua Status</option>
+        <option value="AKTIF">Hanya Aktif</option>
+        <option value="NONAKTIF">Nonaktif</option>
+      </select>
+    </div>
+    <div class="toolbar-right">
+      <button class="btn btn-primary" onclick="openAddMemberModal()">+ Tambah Anggota</button>
+      <button class="btn btn-outline" onclick="loadMembersData()">🔄 Refresh</button>
+    </div>
+  </div>
+
+  <div class="table-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Nama Lengkap</th>
+          <th>NIK</th>
+          <th>RT / RW</th>
+          <th>No WhatsApp</th>
+          <th>Status</th>
+          <th style="text-align: center;">Total Beli</th>
+          <th>Aksi</th>
+        </tr>
+      </thead>
+      <tbody id="member-table-body">
+        <tr>
+          <td colspan="8" style="text-align: center; padding: 30px; color: var(--text-muted);">Memuat data anggota...
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- TAB SETTINGS & SYNC -->
+<div id="tab-settings" class="tab-pane">
+  <div class="kpi-grid">
+    <div class="kpi-card" style="grid-column: span 2;">
+      <span class="kpi-label">SINKRONISASI DATA ANGGOTA</span>
+      <h3 style="margin: 8px 0; color: var(--secondary);">Impor Data dari Master Spreadsheet Desa Gulun</h3>
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+        Gunakan tombol ini untuk menyalin data 150 warga Desa Gulun dari spreadsheet referensi secara aman ke dalam
+        database sistem ini.
+      </p>
+      <button class="btn btn-outline" onclick="importFromReference()">
+        📥 Salin Data Anggota dari Spreadsheet Referensi
+      </button>
+    </div>
+
+    <div class="kpi-card" style="grid-column: span 2;">
+      <span class="kpi-label">PERGANTIAN BULAN (RESET KUOTA)</span>
+      <h3 style="margin: 8px 0; color: var(--secondary);">Reset Kuota Bulanan (Bulan Baru)</h3>
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+        Mereset nilai <code>total_beli_bulan_ini</code> menjadi 0 untuk semua anggota saat awal bulan baru dimulai, agar
+        siklus rotasi 100 tabung bergulir kembali secara adil.
+      </p>
+      <button class="btn btn-primary" onclick="confirmResetMonth()">
+        🔄 Reset Kuota untuk Bulan Baru
+      </button>
+    </div>
+
+    <div class="kpi-card" style="grid-column: span 2;">
+      <span class="kpi-label">KEAMANAN & AUTENTIKASI</span>
+      <h3 style="margin: 8px 0; color: var(--secondary);">Ganti PIN Login Admin</h3>
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+        PIN default awal adalah <code>123456</code>. Anda dapat mengubahnya untuk mengamankan akses pengelolaan data
+        koperasi.
+      </p>
+      <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+        <input type="password" id="input-old-pin" class="input-text" placeholder="PIN Lama" style="width: 130px;">
+        <input type="password" id="input-new-pin" class="input-text" placeholder="PIN Baru" style="width: 130px;">
+        <button class="btn btn-outline" onclick="submitChangePin()">Simpan PIN Baru</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Tambah / Edit Anggota -->
+<div id="modal-member" class="modal-backdrop">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h3 id="modal-member-title" class="modal-title">Tambah Anggota Baru</h3>
+      <button class="modal-close" onclick="closeModal('modal-member')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="form-member-id">
+      <div class="form-group">
+        <label class="form-label">Nama Lengkap:*</label>
+        <input type="text" id="form-member-name" class="input-text" style="width: 100%;" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">NIK KTP:</label>
+        <input type="text" id="form-member-nik" class="input-text" style="width: 100%;">
+      </div>
+      <div class="form-group">
+        <label class="form-label">RT / RW / Alamat:</label>
+        <input type="text" id="form-member-rt" class="input-text" style="width: 100%;"
+          placeholder="Contoh: RT 02 / RW 01">
+      </div>
+      <div class="form-group">
+        <label class="form-label">No WhatsApp / HP:</label>
+        <input type="text" id="form-member-wa" class="input-text" style="width: 100%;">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Status Anggota:</label>
+        <select id="form-member-status" class="select-control" style="width: 100%;">
+          <option value="AKTIF">AKTIF</option>
+          <option value="NONAKTIF">NONAKTIF</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-member')">Batal</button>
+      <button class="btn btn-primary" onclick="saveMemberForm()">Simpan Data</button>
+    </div>
+  </div>
+</div>
