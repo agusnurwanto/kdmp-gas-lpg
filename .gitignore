@@ -32,3 +32,5 @@ __pycache__/
 .venv/
 venv/
 ENV/
+
+data_penjualan/

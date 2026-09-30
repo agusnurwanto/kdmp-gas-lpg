@@ -6,6 +6,7 @@
   let selectedBatchId = "";
   let publicQueueCache = [];
   let isAdmin = false;
+  let salesImportState = null;
 
   // Pengaturan Aplikasi dari Database (default sebelum dimuat)
   let appSettings = {
@@ -21,6 +22,7 @@
 
   // Inisialisasi saat halaman dimuat
   document.addEventListener("DOMContentLoaded", function () {
+    initSalesImportControls();
     initApp();
   });
 
@@ -1091,6 +1093,221 @@
         })
         .importMembersFromReference(null, "template_simkopdes", getAdminToken());
     }
+  }
+
+  function initSalesImportControls() {
+    const fileInput = document.getElementById("sales-import-file");
+    const priceInput = document.getElementById("sales-import-price");
+    if (fileInput) fileInput.addEventListener("change", resetSalesImportPreview);
+    if (priceInput) priceInput.addEventListener("input", function () {
+      document.getElementById("sales-import-price-confirm").checked = false;
+      updateSalesImportButton();
+    });
+  }
+
+  function resetSalesImportPreview() {
+    salesImportState = null;
+    document.getElementById("sales-import-preview").style.display = "none";
+    document.getElementById("sales-import-result").textContent = "";
+    document.getElementById("sales-import-price-confirm").checked = false;
+    document.getElementById("sales-import-commit-button").disabled = true;
+  }
+
+  function previewSalesImport() {
+    if (!isAdmin || !getAdminToken()) {
+      showToast("Login admin diperlukan untuk mengimpor transaksi.", true);
+      return;
+    }
+    const fileInput = document.getElementById("sales-import-file");
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) {
+      showToast("Pilih file JSON penjualan terlebih dahulu.", true);
+      return;
+    }
+    if (!file.name.toLowerCase().endsWith(".json")) {
+      showToast("File harus berekstensi .json.", true);
+      return;
+    }
+
+    const button = document.getElementById("sales-import-preview-button");
+    button.disabled = true;
+    showToast("Memvalidasi file dan mencocokkan data anggota...");
+    const reader = new FileReader();
+    reader.onload = function () {
+      const jsonText = String(reader.result || "");
+      google.script.run
+        .withSuccessHandler(function (res) {
+          button.disabled = false;
+          if (!res || !res.success) {
+            showToast(res && res.message ? res.message : "Pratinjau impor gagal.", true);
+            return;
+          }
+          salesImportState = { jsonText: jsonText, fileName: file.name, preview: res };
+          renderSalesImportPreview(res);
+          showToast("Pratinjau siap. Periksa harga dan pemetaan sebelum impor.");
+        })
+        .withFailureHandler(function (err) {
+          button.disabled = false;
+          showToast(err.message || "Gagal membaca pratinjau impor.", true);
+        })
+        .getSalesImportPreview(jsonText, file.name, getAdminToken());
+    };
+    reader.onerror = function () {
+      button.disabled = false;
+      showToast("File tidak dapat dibaca oleh browser.", true);
+    };
+    reader.readAsText(file, "UTF-8");
+  }
+
+  function renderSalesImportPreview(preview) {
+    const summaryHost = document.getElementById("sales-import-summary");
+    summaryHost.textContent = "";
+    const summaryTable = document.createElement("table");
+    summaryTable.className = "data-table";
+    const rows = [
+      ["Periode", preview.period],
+      ["Pelanggan", preview.customers.length],
+      ["Tabung (ringkasan / hasil jumlah baris)", preview.summary.sold + " / " + preview.summary.sold],
+      ["Gross", formatSalesImportCurrency(preview.summary.gross)],
+      ["Modal (informasi sumber)", formatSalesImportCurrency(preview.summary.modal)],
+      ["Profit (informasi sumber)", formatSalesImportCurrency(preview.summary.profit)],
+      ["Cocok otomatis", preview.counts.matched],
+      ["Nama ambigu", preview.counts.ambiguous],
+      ["Tidak cocok", preview.counts.unmatched],
+      ["Duplikat yang akan dilewati", preview.counts.duplicates],
+      ["Usulan harga per tabung", preview.suggestedPrice === null ? "Wajib diisi manual" : formatSalesImportCurrency(preview.suggestedPrice)]
+    ];
+    const body = document.createElement("tbody");
+    rows.forEach(function (row) {
+      const tr = document.createElement("tr");
+      const label = document.createElement("th");
+      const value = document.createElement("td");
+      label.textContent = row[0];
+      value.textContent = String(row[1]);
+      tr.appendChild(label);
+      tr.appendChild(value);
+      body.appendChild(tr);
+    });
+    summaryTable.appendChild(body);
+    summaryHost.appendChild(summaryTable);
+
+    const priceInput = document.getElementById("sales-import-price");
+    priceInput.value = preview.suggestedPrice === null ? "" : String(preview.suggestedPrice);
+    document.getElementById("sales-import-price-confirm").checked = false;
+    renderSalesImportMappings(preview);
+    document.getElementById("sales-import-preview").style.display = "block";
+    updateSalesImportButton();
+  }
+
+  function renderSalesImportMappings(preview) {
+    const host = document.getElementById("sales-import-mapping");
+    host.textContent = "";
+    const unresolved = preview.customers.filter(function (customer) {
+      return !customer.duplicate && customer.matchStatus !== "matched_nik" && customer.matchStatus !== "matched_name";
+    });
+    if (!unresolved.length) {
+      host.textContent = "Semua pelanggan yang belum menjadi duplikat cocok otomatis; tidak ada pemetaan manual.";
+      return;
+    }
+
+    const table = document.createElement("table");
+    table.className = "data-table";
+    const thead = document.createElement("thead");
+    const headingRow = document.createElement("tr");
+    ["Pelanggan sumber", "Tabung", "Status", "Pilih anggota (opsional)"].forEach(function (text) {
+      const th = document.createElement("th");
+      th.textContent = text;
+      headingRow.appendChild(th);
+    });
+    thead.appendChild(headingRow);
+    table.appendChild(thead);
+    const body = document.createElement("tbody");
+    unresolved.forEach(function (customer) {
+      const row = document.createElement("tr");
+      const name = document.createElement("td");
+      const quantity = document.createElement("td");
+      const status = document.createElement("td");
+      const choiceCell = document.createElement("td");
+      const select = document.createElement("select");
+      select.className = "select-control";
+      select.dataset.customerReportId = customer.customerReportId;
+      const skipOption = document.createElement("option");
+      skipOption.value = "";
+      skipOption.textContent = "Lewati pelanggan ini";
+      select.appendChild(skipOption);
+      preview.members.forEach(function (member) {
+        const option = document.createElement("option");
+        option.value = member.id_anggota;
+        option.textContent = member.nama_lengkap + " (" + member.id_anggota + ")";
+        select.appendChild(option);
+      });
+      name.textContent = customer.name;
+      quantity.textContent = String(customer.quantity);
+      status.textContent = customer.matchStatus.replace(/_/g, " ");
+      choiceCell.appendChild(select);
+      row.appendChild(name);
+      row.appendChild(quantity);
+      row.appendChild(status);
+      row.appendChild(choiceCell);
+      body.appendChild(row);
+    });
+    table.appendChild(body);
+    host.appendChild(table);
+  }
+
+  function formatSalesImportCurrency(value) {
+    return "Rp " + Number(value || 0).toLocaleString("id-ID");
+  }
+
+  function updateSalesImportButton() {
+    const price = Number(document.getElementById("sales-import-price").value);
+    const confirmed = document.getElementById("sales-import-price-confirm").checked;
+    document.getElementById("sales-import-commit-button").disabled = !salesImportState || !confirmed || !Number.isInteger(price) || price <= 0;
+  }
+
+  function commitSalesImport() {
+    if (!salesImportState || !isAdmin || !getAdminToken()) {
+      showToast("Pratinjau aktif dan sesi admin diperlukan.", true);
+      return;
+    }
+    const unitPrice = Number(document.getElementById("sales-import-price").value);
+    if (!Number.isInteger(unitPrice) || unitPrice <= 0 || !document.getElementById("sales-import-price-confirm").checked) {
+      showToast("Masukkan dan konfirmasi harga historis berupa bilangan bulat positif.", true);
+      return;
+    }
+    if (!confirm("Impor transaksi periode " + salesImportState.preview.period + " dengan harga " + formatSalesImportCurrency(unitPrice) + " per tabung? Duplikat dan pelanggan tanpa pemetaan akan dilewati.")) return;
+
+    const decisions = {};
+    document.querySelectorAll("#sales-import-mapping select[data-customer-report-id]").forEach(function (select) {
+      if (select.value) decisions[select.dataset.customerReportId] = select.value;
+    });
+    const button = document.getElementById("sales-import-commit-button");
+    button.disabled = true;
+    showToast("Mengimpor transaksi dan memperbarui riwayat anggota...");
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (!res || !res.success) {
+          button.disabled = false;
+          showToast(res && res.message ? res.message : "Impor transaksi gagal.", true);
+          return;
+        }
+        const result = document.getElementById("sales-import-result");
+        result.textContent = "Selesai: " + res.importedTransactions + " transaksi, " + res.importedUnits + " tabung, total " + formatSalesImportCurrency(res.totalAmount) + "; " + res.duplicateCount + " duplikat dilewati; " + res.skippedCount + " pelanggan tidak diimpor.";
+        if (res.skippedCustomers && res.skippedCustomers.length) {
+          result.textContent += " Perlu ditinjau: " + res.skippedCustomers.map(function (customer) { return customer.name + " (" + customer.status + ")"; }).join(", ") + ".";
+        }
+        salesImportState = null;
+        document.getElementById("sales-import-preview").style.display = "none";
+        document.getElementById("sales-import-file").value = "";
+        loadMembersData();
+        loadDashboardData();
+        showToast("Impor data penjualan selesai.");
+      })
+      .withFailureHandler(function (err) {
+        button.disabled = false;
+        showToast(err.message || "Impor transaksi gagal.", true);
+      })
+      .importSalesFromJson(salesImportState.jsonText, salesImportState.fileName, unitPrice, decisions, getAdminToken());
   }
 
   function escapeQuotes(str) {

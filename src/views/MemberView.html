@@ -43,6 +43,31 @@
 <div id="tab-settings" class="tab-pane">
   <div class="kpi-grid">
     <div class="kpi-card" style="grid-column: span 2;">
+      <span class="kpi-label">IMPOR PENJUALAN HISTORIS</span>
+      <h3 style="margin: 8px 0; color: var(--secondary);">Impor Rekap Penjualan dari JSON</h3>
+      <div class="form-group">
+        <label class="form-label" for="sales-import-file">File JSON bulanan (contoh: 09-2026.json)</label>
+        <input type="file" id="sales-import-file" class="input-text" accept=".json,application/json" style="width: 100%;">
+      </div>
+      <button id="sales-import-preview-button" class="btn btn-outline" onclick="previewSalesImport()">Tinjau File JSON</button>
+      <div id="sales-import-preview" style="display: none; margin-top: 18px;">
+        <div id="sales-import-summary" class="table-container"></div>
+        <div class="form-group" style="margin-top: 14px;">
+          <label class="form-label" for="sales-import-price">Harga historis per tabung (Rp)</label>
+          <input type="number" id="sales-import-price" class="input-text" min="1" step="1" style="max-width: 220px;">
+          <label style="display: flex; align-items: flex-start; gap: 8px; margin-top: 10px; font-size: 13px;">
+            <input type="checkbox" id="sales-import-price-confirm" onchange="updateSalesImportButton()">
+            <span>Saya mengonfirmasi harga historis per tabung di atas.</span>
+          </label>
+        </div>
+        <p style="font-size: 13px; color: var(--text-muted);">Pelanggan yang tidak cocok atau memiliki nama ambigu hanya akan diimpor jika dipetakan secara manual. Pilihan kosong berarti dilewati.</p>
+        <div id="sales-import-mapping" class="table-container"></div>
+        <button id="sales-import-commit-button" class="btn btn-primary" onclick="commitSalesImport()" disabled>Impor Transaksi Terpilih</button>
+      </div>
+      <div id="sales-import-result" role="status" style="margin-top: 12px;"></div>
+    </div>
+
+    <div class="kpi-card" style="grid-column: span 2;">
       <span class="kpi-label">SINKRONISASI DATA ANGGOTA</span>
       <h3 style="margin: 8px 0; color: var(--secondary);">Impor Data dari Master Spreadsheet Desa Gulun</h3>
       <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">

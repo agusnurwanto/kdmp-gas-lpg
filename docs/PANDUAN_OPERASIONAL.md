@@ -14,7 +14,7 @@ Aplikasi Web KDMP Desa Gulun dirancang dengan 2 tingkatan akses yang aman dan mu
 | **📊 Laporan Rekapitulasi** | ✅ Terbuka (Nomor HP Tersembunyi) | ✅ Terbuka + Lengkap No HP & Tombol CSV |
 | **📋 Antrian Batch & Kasir** | ❌ Terkunci | ✅ Akses Penuh via PIN Admin |
 | **👥 Master Anggota** | ❌ Terkunci | ✅ Akses Penuh via PIN Admin |
-| **⚙️ Setup & Ganti PIN** | ❌ Terkunci | ✅ Akses Penuh via PIN Admin |
+| **⚙️ Pengaturan, PIN & Impor Penjualan** | ❌ Terkunci | ✅ Akses Penuh via PIN Admin |
 
 > **🔐 Cara Masuk Mode Admin**:
 > 1. Klik tombol **`🔐 Login Admin`** di pojok kanan atas.
@@ -119,4 +119,21 @@ Pada awal bulan baru (setiap tanggal 1):
 1. Buka tab **⚙️ Setup & PIN**.
 2. Klik tombol **`🔄 Reset Kuota untuk Bulan Baru`**.
 3. Sistem akan mereset kolom `total_beli_bulan_ini` menjadi 0 untuk seluruh anggota, sementara `total_beli_kumulatif` tetap tersimpan aman. Siklus 100 tabung baru siap bergulir secara adil!
+
+---
+
+## 7. Impor Penjualan Historis dari JSON
+
+Gunakan fitur ini untuk memasukkan rekap bulanan dari file seperti `09-2026.json`:
+
+1. Login Admin, buka tab **⚙️ Setup & PIN**, lalu pilih file JSON pada bagian **Impor Rekap Penjualan dari JSON**.
+2. Klik **Tinjau File JSON**. Sistem memeriksa format, jumlah tabung, periode nama file `MM-YYYY.json`, dan mencocokkan pelanggan melalui NIK lengkap yang sama persis atau nama unik yang dinormalisasi.
+3. Periksa ringkasan `gross`, `modal`, `profit`, jumlah tabung, pelanggan yang cocok, nama ambigu/tidak cocok, dan transaksi yang sudah pernah diimpor.
+4. Untuk pelanggan ambigu atau tidak cocok, pilih anggota yang benar secara manual. Biarkan pilihan kosong untuk melewati pelanggan tersebut.
+5. Masukkan atau periksa harga historis per tabung. Sistem mengusulkan `gross / sold` hanya bila hasilnya bilangan bulat; harga wajib dikonfirmasi sebelum impor.
+6. Klik **Impor Transaksi Terpilih** dan setujui konfirmasi. Hasil menampilkan transaksi/tabung yang masuk, total nilai, duplikat yang dilewati, dan pelanggan yang perlu ditinjau.
+
+ID transaksi dibentuk secara deterministik dari periode dan `customerReportId`, sehingga file yang sama aman diproses ulang tanpa menggandakan transaksi atau statistik. Impor historis mencatat `id_antrian` dan `id_batch` kosong, metode bayar `IMPOR_HISTORIS`, serta petugas `IMPOR JSON`; impor tidak membuat antrian, batch, atau mengurangi stok. Riwayat kumulatif dan tanggal pembelian anggota diperbarui untuk transaksi yang baru ditambahkan. Kuota bulan berjalan hanya bertambah jika tanggal transaksi memang berada pada bulan berjalan.
+
+JSON yang rusak, nilai tabung tidak valid, tanggal ISO tidak nyata, atau total kuantitas baris yang berbeda dari `summaryReport.sold` akan ditolak sebelum penulisan. File yang diperlukan harus dipilih dari perangkat admin; Web App tidak membaca folder `data_penjualan` di server lokal proyek.
 
