@@ -65,17 +65,46 @@ function validateApiKey(apiKey) {
 
 /**
  * Memvalidasi session token dari frontend Web App.
- * Token disimpan sementara di CacheService (server-side, TTL 1 jam).
+ * Catatan kedaluwarsa disimpan di Script Properties; CacheService hanya cache turunan.
  */
+function getAdminSessionPropertyKey(token) {
+  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(token).trim());
+  const hash = digest.map(function (byte) {
+    return (byte + 256).toString(16).slice(-2);
+  }).join("");
+  return "ADMIN_SESSION_" + hash;
+}
+
 function validateSession(token) {
   if (!token) return false;
   try {
+    const cleanToken = String(token).trim();
+    const props = PropertiesService.getScriptProperties();
+    const sessionKey = getAdminSessionPropertyKey(cleanToken);
+    const expiresAt = Number(props.getProperty(sessionKey) || 0);
+    if (!expiresAt || expiresAt <= Date.now()) {
+      props.deleteProperty(sessionKey);
+      CacheService.getScriptCache().remove("SESSION_" + cleanToken);
+      return false;
+    }
+
     const cache = CacheService.getScriptCache();
-    const storedValue = cache.get("SESSION_" + String(token).trim());
-    return storedValue === "ADMIN";
+    const remainingSeconds = Math.max(1, Math.ceil((expiresAt - Date.now()) / 1000));
+      try {
+        cache.put("SESSION_" + cleanToken, "ADMIN", Math.min(21600, remainingSeconds));
+    } catch (cacheError) {
+      console.warn("Cache sesi tidak tersedia; sesi tetap diverifikasi dari Script Properties.", cacheError);
+    }
+    return true;
   } catch (e) {
+    console.error("Gagal memvalidasi sesi admin:", e);
     return false;
   }
+}
+
+/** Memvalidasi token admin yang dikirim dari browser. */
+function validateAdminSession(token) {
+  return { success: validateSession(token) };
 }
 
 /**
@@ -110,7 +139,7 @@ function doGet(e) {
     }
 
     // Render Web App Single Page Application
-    const template = HtmlService.createTemplateFromFile("Index");
+    const template = HtmlService.createTemplateFromFile("views/Index");
     template.appName = CONFIG.APP_NAME;
     
     return template.evaluate()
@@ -153,7 +182,7 @@ function doPost(e) {
  * Helper untuk menyisipkan konten berkas HTML terpisah (include)
  */
 function include(filename) {
-  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+  return HtmlService.createHtmlOutputFromFile("views/" + filename).getContent();
 }
 
 /**
@@ -297,37 +326,143 @@ function getAdminPin() {
  * Mengambil semua pengaturan aplikasi dari sheet PENGATURAN (untuk frontend)
  */
 function getAppSettings() {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = "APP_SETTINGS_PUBLIC_V1";
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    try {
+      return JSON.parse(cached);
+    } catch (e) {
+      cache.remove(cacheKey);
+    }
+  }
+
+  const defaults = {
+    NAMA_KOPERASI: "Koperasi Desa Merah Putih (KDMP) Desa Gulun",
+    KUOTA_PER_BATCH: String(CONFIG.DEFAULT_QUOTA_PER_BATCH),
+    HARGA_PER_TABUNG: String(CONFIG.DEFAULT_PRICE),
+    ATURAN_ROTASI: "FAIR_PRIORITY_ROUND_ROBIN",
+    LOGO_FILE_ID: "",
+    LOGO_MIME_TYPE: "",
+    LOGO_DATA_URL: ""
+  };
+  const logoChunks = {};
   try {
     const db = getDatabase();
     const sheet = db.getSheetByName(CONFIG.SHEETS.PENGATURAN);
-    const defaults = {
-      NAMA_KOPERASI: CONFIG.APP_NAME,
-      KUOTA_PER_BATCH: String(CONFIG.DEFAULT_QUOTA_PER_BATCH),
-      HARGA_PER_TABUNG: String(CONFIG.DEFAULT_PRICE),
-      ATURAN_ROTASI: "FAIR_PRIORITY_ROUND_ROBIN"
-    };
-    if (!sheet) return defaults;
-    const values = sheet.getDataRange().getValues();
-    for (let i = 1; i < values.length; i++) {
-      const key = String(values[i][0]).trim().toUpperCase();
-      if (key && key !== "ADMIN_PIN") {
-        defaults[key] = String(values[i][1]).trim();
+    if (sheet) {
+      const values = sheet.getDataRange().getValues();
+      for (let i = 1; i < values.length; i++) {
+        const key = String(values[i][0]).trim().toUpperCase();
+        const logoChunk = key.match(/^LOGO_BASE64_(\d{4})$/);
+        if (logoChunk) {
+          logoChunks[Number(logoChunk[1])] = String(values[i][1] || "").trim();
+        } else if (key && key !== "ADMIN_PIN") {
+          defaults[key] = String(values[i][1]).trim();
+        }
       }
     }
-    return defaults;
   } catch (e) {
-    return {
-      NAMA_KOPERASI: CONFIG.APP_NAME,
-      KUOTA_PER_BATCH: String(CONFIG.DEFAULT_QUOTA_PER_BATCH),
-      HARGA_PER_TABUNG: String(CONFIG.DEFAULT_PRICE),
-      ATURAN_ROTASI: "FAIR_PRIORITY_ROUND_ROBIN"
-    };
+    console.error("Gagal membaca pengaturan aplikasi:", e);
   }
+
+  const logoChunkIndexes = Object.keys(logoChunks).map(Number).sort(function (a, b) { return a - b; });
+  if (defaults.LOGO_MIME_TYPE && logoChunkIndexes.length) {
+    defaults.LOGO_DATA_URL = "data:" + defaults.LOGO_MIME_TYPE + ";base64," +
+      logoChunkIndexes.map(function (index) { return logoChunks[index]; }).join("");
+  }
+  defaults.LOGO_URL = !defaults.LOGO_DATA_URL && defaults.LOGO_FILE_ID
+    ? "https://drive.google.com/uc?export=view&id=" + encodeURIComponent(defaults.LOGO_FILE_ID)
+    : "";
+  try {
+    const settingsJson = JSON.stringify(defaults);
+    if (settingsJson.length <= 90000) cache.put(cacheKey, settingsJson, 300);
+  } catch (e) {
+    console.warn("Pengaturan tidak dapat disimpan ke cache server:", e);
+  }
+  return defaults;
 }
 
 /**
- * Autentikasi Login Admin Pengurus
- * Token yang dikembalikan disimpan server-side di CacheService (TTL: 1 jam).
+ * Simpan identitas koperasi dan logo base64 pada sheet PENGATURAN.
+ */
+function saveCooperativeSettings(name, logoDataUrl, sessionToken) {
+  if (!validateSession(sessionToken)) {
+    return { success: false, message: "Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.", code: 403 };
+  }
+
+  const cooperativeName = String(name || "").trim();
+  if (cooperativeName.length < 3 || cooperativeName.length > 100) {
+    return { success: false, message: "Nama koperasi harus berisi 3 sampai 100 karakter." };
+  }
+
+  const currentSettings = getAppSettings();
+  let logoMimeType = currentSettings.LOGO_MIME_TYPE || "";
+  let logoBase64 = "";
+  if (logoDataUrl) {
+    const match = String(logoDataUrl).match(/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/);
+    if (!match) {
+      return { success: false, message: "Format logo tidak valid. Gunakan PNG, JPEG, atau WebP." };
+    }
+    if (match[2].length > 1400000) {
+      return { success: false, message: "Ukuran logo melebihi batas 1 MB." };
+    }
+
+    const bytes = Utilities.base64Decode(match[2]);
+    if (bytes.length > 1024 * 1024) {
+      return { success: false, message: "Ukuran logo melebihi batas 1 MB." };
+    }
+    logoMimeType = match[1];
+    logoBase64 = match[2];
+  }
+
+  const sheet = getDatabase().getSheetByName(CONFIG.SHEETS.PENGATURAN);
+  if (!sheet) throw new Error("Sheet PENGATURAN belum tersedia. Jalankan setupDatabase() terlebih dahulu.");
+  const values = sheet.getDataRange().getValues();
+  const rowByKey = {};
+  for (let i = 1; i < values.length; i++) {
+    const key = String(values[i][0]).trim().toUpperCase();
+    if (key) rowByKey[key] = i + 1;
+  }
+
+  function setSetting(key, value) {
+    if (rowByKey[key]) sheet.getRange(rowByKey[key], 2).setValue(value);
+    else {
+      sheet.appendRow([key, value]);
+      rowByKey[key] = sheet.getLastRow();
+    }
+  }
+
+  setSetting("NAMA_KOPERASI", cooperativeName);
+  if (logoDataUrl) {
+    const chunkSize = 40000;
+    const chunkCount = Math.ceil(logoBase64.length / chunkSize);
+    setSetting("LOGO_MIME_TYPE", logoMimeType);
+    setSetting("LOGO_CHUNK_COUNT", String(chunkCount));
+    for (let index = 0; index < chunkCount; index++) {
+      const chunkKey = "LOGO_BASE64_" + ("0000" + (index + 1)).slice(-4);
+      setSetting(chunkKey, logoBase64.slice(index * chunkSize, (index + 1) * chunkSize));
+    }
+
+    const obsoleteRows = [];
+    Object.keys(rowByKey).forEach(function (key) {
+      const match = key.match(/^LOGO_BASE64_(\d{4})$/);
+      if (match && Number(match[1]) > chunkCount) obsoleteRows.push(rowByKey[key]);
+    });
+    if (rowByKey.LOGO_FILE_ID) obsoleteRows.push(rowByKey.LOGO_FILE_ID);
+    obsoleteRows.sort(function (a, b) { return b - a; }).forEach(function (rowIndex) {
+      sheet.deleteRow(rowIndex);
+    });
+  }
+
+  CacheService.getScriptCache().remove("APP_SETTINGS_PUBLIC_V1");
+  const updatedSettings = getAppSettings();
+  return { success: true, message: "Identitas koperasi berhasil disimpan.", settings: updatedSettings };
+}
+
+/**
+ * Autentikasi Login Admin Pengurus. Script Properties menjadi sumber sesi
+ * yang tahan terhadap CacheService eviction.
  */
 function loginAdmin(pinInput) {
   const currentPin = getAdminPin();
@@ -342,12 +477,20 @@ function loginAdmin(pinInput) {
       )
     ).replace(/[+/=]/g, "").substring(0, 48);
 
-    // Simpan token di server-side cache (TTL 3600 detik = 1 jam)
+    const sessionTtlSeconds = 8 * 60 * 60;
+    const expiresAt = Date.now() + sessionTtlSeconds * 1000;
+    const sessionKey = getAdminSessionPropertyKey(token);
     try {
-      const cache = CacheService.getScriptCache();
-      cache.put("SESSION_" + token, "ADMIN", 3600);
+      PropertiesService.getScriptProperties().setProperty(sessionKey, String(expiresAt));
+        try {
+          CacheService.getScriptCache().put("SESSION_" + token, "ADMIN", 21600);
+        } catch (cacheError) {
+          console.warn("Cache sesi tidak tersedia; sesi tetap tersimpan.", cacheError);
+        }
     } catch (e) {
-      console.error("Gagal menyimpan session token:", e);
+      PropertiesService.getScriptProperties().deleteProperty(sessionKey);
+      console.error("Gagal menyimpan sesi admin:", e);
+      return { success: false, message: "Sesi admin tidak dapat dibuat. Silakan coba lagi." };
     }
 
     return {
@@ -366,11 +509,12 @@ function loginAdmin(pinInput) {
 }
 
 /**
- * Logout Admin - menghapus session token dari CacheService server-side.
+ * Logout Admin - mencabut sesi dari Script Properties dan CacheService.
  */
 function logoutAdmin(token) {
   if (token) {
     try {
+      PropertiesService.getScriptProperties().deleteProperty(getAdminSessionPropertyKey(token));
       const cache = CacheService.getScriptCache();
       cache.remove("SESSION_" + String(token).trim());
     } catch (e) {

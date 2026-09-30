@@ -1,9 +1,10 @@
 <header class="navbar">
   <div class="brand-group">
-    <div class="brand-badge">KDMP GULUN</div>
+    <div class="brand-badge" id="brand-badge">KDMP GULUN</div>
+    <img id="brand-logo" class="brand-logo" alt="Logo koperasi" hidden>
     <div>
       <h1 class="brand-title">Sistem Distribusi Gas LPG</h1>
-      <p class="brand-subtitle">Koperasi Desa Merah Putih &bull; Desa Gulun, Kec. Maospati, Magetan</p>
+      <p class="brand-subtitle" id="brand-subtitle">Koperasi Desa Merah Putih &bull; Desa Gulun, Kec. Maospati, Magetan</p>
     </div>
   </div>
 
@@ -13,6 +14,7 @@
       <button class="tab-btn" id="btn-tab-dashboard" onclick="switchTab('tab-dashboard')">📊 Laporan Rekap</button>
       <button class="tab-btn admin-tab" id="btn-tab-queue" onclick="switchTab('tab-queue')" style="display: none;">📋 Antrian Batch</button>
       <button class="tab-btn admin-tab" id="btn-tab-members" onclick="switchTab('tab-members')" style="display: none;">👥 Master Anggota</button>
+      <button class="tab-btn admin-tab" id="btn-tab-sales-import" onclick="switchTab('tab-sales-import')" style="display: none;">📤 Impor Penjualan</button>
       <button class="tab-btn admin-tab" id="btn-tab-settings" onclick="switchTab('tab-settings')" style="display: none;">⚙️ Setup &amp; PIN</button>
     </nav>
 

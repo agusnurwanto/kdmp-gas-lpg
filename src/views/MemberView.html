@@ -39,8 +39,8 @@
   </div>
 </div>
 
-<!-- TAB SETTINGS & SYNC -->
-<div id="tab-settings" class="tab-pane">
+<!-- TAB IMPORT PENJUALAN -->
+<div id="tab-sales-import" class="tab-pane">
   <div class="kpi-grid">
     <div class="kpi-card" style="grid-column: span 2;">
       <span class="kpi-label">IMPOR PENJUALAN HISTORIS</span>
@@ -65,6 +65,26 @@
         <button id="sales-import-commit-button" class="btn btn-primary" onclick="commitSalesImport()" disabled>Impor Transaksi Terpilih</button>
       </div>
       <div id="sales-import-result" role="status" style="margin-top: 12px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- TAB SETTINGS & SYNC -->
+<div id="tab-settings" class="tab-pane">
+  <div class="kpi-grid">
+    <div class="kpi-card" style="grid-column: span 2;">
+      <span class="kpi-label">IDENTITAS KOPERASI</span>
+      <h3 style="margin: 8px 0 12px; color: var(--secondary);">Nama dan logo KDMP / KKMP</h3>
+      <label class="form-label" for="setting-org-name">Nama koperasi</label>
+      <input type="text" id="setting-org-name" class="input-text" maxlength="100" style="width: 100%; margin: 6px 0 14px;">
+      <label class="form-label" for="setting-org-logo">Logo (PNG, JPEG, atau WebP; maks. 1 MB)</label>
+      <input type="file" id="setting-org-logo" class="input-text" accept="image/png,image/jpeg,image/webp" style="width: 100%; margin: 6px 0 12px;">
+      <div class="settings-logo-preview-wrap">
+        <img id="setting-org-logo-preview" class="settings-logo-preview" alt="Pratinjau logo koperasi" hidden>
+        <span id="setting-org-logo-empty">Belum ada logo. Badge nama koperasi akan digunakan.</span>
+      </div>
+      <button class="btn btn-primary" id="save-org-settings-button" onclick="saveCooperativeSettings()">Simpan identitas koperasi</button>
+      <p style="font-size: 12px; color: var(--text-muted); margin-top: 10px;">Logo disimpan sebagai potongan teks Base64 pada sheet PENGATURAN dan dapat dilihat pengunjung.</p>
     </div>
 
     <div class="kpi-card" style="grid-column: span 2;">

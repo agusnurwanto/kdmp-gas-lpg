@@ -25,6 +25,11 @@
     <?!= include('MemberView'); ?>
   </div>
 
+  <div id="app-loading-overlay" class="loading-overlay" role="status" aria-live="polite" aria-atomic="true">
+    <span class="loading-spinner" aria-hidden="true"></span>
+    <span>Memproses permintaan ke server...</span>
+  </div>
+
   <!-- MODAL LOGIN ADMIN -->
   <div id="modal-login" class="modal-backdrop">
     <div class="modal-dialog" style="max-width: 380px;">
@@ -34,7 +39,7 @@
       </div>
       <div class="modal-body">
         <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
-          Masukkan PIN Admin Koperasi Desa Merah Putih Desa Gulun untuk membuka panel pengelolaan antrian & kasir:
+          Masukkan PIN Admin <span id="login-org-name">Koperasi Desa Merah Putih (KDMP) Desa Gulun</span> untuk membuka panel pengelolaan antrian &amp; kasir:
         </p>
         <div class="form-group">
           <label class="form-label">PIN Admin:</label>

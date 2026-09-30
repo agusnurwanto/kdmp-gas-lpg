@@ -7,10 +7,140 @@
   let publicQueueCache = [];
   let isAdmin = false;
   let salesImportState = null;
+  let activeServerRequests = 0;
+  let settingsCacheTimer = null;
+  let localLogoPreviewUrl = "";
+  let disabledButtonsDuringRequest = [];
+  let appSettingsLoaded = false;
+  let adminDataLoaded = false;
+
+  const SETTINGS_CACHE_KEY = "KDMP_APP_SETTINGS_V1";
+  const SETTINGS_CACHE_TTL = 10 * 60 * 1000;
+
+  function beginServerRequest() {
+    if (activeServerRequests === 0) {
+      const buttons = document.querySelectorAll(".app-container button");
+      disabledButtonsDuringRequest = [];
+      buttons.forEach(function (button) {
+        disabledButtonsDuringRequest.push({ button: button, wasDisabled: button.disabled });
+        button.disabled = true;
+      });
+    }
+    activeServerRequests++;
+    if (settingsCacheTimer) {
+      clearTimeout(settingsCacheTimer);
+      settingsCacheTimer = null;
+    }
+    const overlay = document.getElementById("app-loading-overlay");
+    if (overlay) overlay.classList.add("show");
+    const app = document.querySelector(".app-container");
+    if (app) {
+      app.setAttribute("aria-busy", "true");
+      app.inert = true;
+    }
+  }
+
+  function endServerRequest() {
+    activeServerRequests = Math.max(0, activeServerRequests - 1);
+    if (activeServerRequests || settingsCacheTimer) return;
+    settingsCacheTimer = setTimeout(function () {
+      settingsCacheTimer = null;
+      if (activeServerRequests) return;
+      const overlay = document.getElementById("app-loading-overlay");
+      if (overlay) overlay.classList.remove("show");
+      const app = document.querySelector(".app-container");
+      if (app) {
+        app.removeAttribute("aria-busy");
+        app.inert = false;
+      }
+      disabledButtonsDuringRequest.forEach(function (entry) {
+        if (entry.button.disabled) entry.button.disabled = entry.wasDisabled;
+      });
+      disabledButtonsDuringRequest = [];
+    }, 120);
+  }
+
+  function trackedGoogleScriptRun(successHandler, failureHandler, userObject) {
+    const runner = window.google.script.run;
+    return new Proxy({}, {
+      get: function (_, property) {
+        if (property === "withSuccessHandler") {
+          return function (handler) { return trackedGoogleScriptRun(handler, failureHandler, userObject); };
+        }
+        if (property === "withFailureHandler") {
+          return function (handler) { return trackedGoogleScriptRun(successHandler, handler, userObject); };
+        }
+        if (property === "withUserObject") {
+          return function (userObject) {
+            return trackedGoogleScriptRun(successHandler, failureHandler, userObject);
+          };
+        }
+        return function () {
+          const args = Array.prototype.slice.call(arguments);
+          beginServerRequest();
+          let completed = false;
+          function complete() {
+            if (completed) return;
+            completed = true;
+            endServerRequest();
+          }
+          const ok = function () {
+            try {
+              if (successHandler) successHandler.apply(null, arguments);
+            } finally {
+              complete();
+            }
+          };
+          const fail = function (error) {
+            try {
+              if (failureHandler) failureHandler.apply(null, arguments);
+              else {
+                console.error("Apps Script request failed:", error);
+                showToast(error && error.message ? error.message : "Permintaan ke server gagal.", true);
+              }
+            } finally {
+              complete();
+            }
+          };
+          let configured = runner.withSuccessHandler(ok).withFailureHandler(fail);
+          if (userObject !== undefined) configured = configured.withUserObject(userObject);
+          try {
+            configured[property].apply(configured, args);
+          } catch (error) {
+            complete();
+            throw error;
+          }
+        };
+      }
+    });
+  }
+
+  const appScript = { get run() { return trackedGoogleScriptRun(); } };
+
+  function readCachedAppSettings() {
+    try {
+      const cached = JSON.parse(localStorage.getItem(SETTINGS_CACHE_KEY) || "null");
+      if (!cached || !cached.settings || !cached.expiresAt) return null;
+      return { settings: cached.settings, fresh: Date.now() < cached.expiresAt };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function cacheAppSettings(settings) {
+    try {
+      localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify({
+        settings: settings,
+        expiresAt: Date.now() + SETTINGS_CACHE_TTL
+      }));
+    } catch (error) {
+      console.warn("Pengaturan tidak dapat disimpan ke cache browser:", error);
+    }
+  }
 
   // Pengaturan Aplikasi dari Database (default sebelum dimuat)
   let appSettings = {
-    HARGA_PER_TABUNG: "18000",
+    HARGA_PER_TABUNG: "20000",
     KUOTA_PER_BATCH: "25",
     NAMA_KOPERASI: "Koperasi Desa Merah Putih (KDMP) Desa Gulun"
   };
@@ -23,34 +153,62 @@
   // Inisialisasi saat halaman dimuat
   document.addEventListener("DOMContentLoaded", function () {
     initSalesImportControls();
+    initCooperativeSettingsControls();
     initApp();
   });
 
   function initApp() {
     checkAuth();
-    // Load pengaturan dari database terlebih dahulu
-    google.script.run
+    const cached = readCachedAppSettings();
+    if (cached) {
+      appSettings = cached.settings;
+      applySettingsToUI();
+      initializeDataViews();
+      if (cached.fresh) return;
+    }
+    appScript.run
       .withSuccessHandler(function (settings) {
-        if (settings) appSettings = settings;
-        applySettingsToUI();
-        loadPublicData();
-        if (isAdmin) {
-          loadBatches();
-          loadDashboardData();
-          loadMembersData();
+        if (settings) {
+          appSettings = settings;
+          cacheAppSettings(settings);
         }
+        applySettingsToUI();
+        appSettingsLoaded = true;
+        if (!cached) initializeDataViews();
+        else loadAdminDataOnce();
       })
-      .withFailureHandler(function () {
+      .withFailureHandler(function (error) {
         // Gunakan default jika gagal
         applySettingsToUI();
-        loadPublicData();
-        if (isAdmin) {
-          loadBatches();
-          loadDashboardData();
-          loadMembersData();
-        }
+        appSettingsLoaded = true;
+        if (!cached) initializeDataViews();
+        else loadAdminDataOnce();
+        console.error("Gagal memuat pengaturan:", error);
+        showToast(error && error.message ? error.message : "Pengaturan belum dapat dimuat dari server.", true);
       })
       .getAppSettings();
+  }
+
+  function initializeDataViews() {
+    appSettingsLoaded = true;
+    loadPublicData();
+    loadAdminDataOnce();
+  }
+
+  function loadAdminDataOnce() {
+    if (!isAdmin || !appSettingsLoaded || adminDataLoaded) return;
+    adminDataLoaded = true;
+    loadBatches();
+    loadDashboardData();
+    loadMembersData();
+  }
+
+  function clearExpiredAdminSession(message) {
+    sessionStorage.removeItem("KDMP_ADMIN_TOKEN");
+    isAdmin = false;
+    adminDataLoaded = false;
+    updateAuthUI();
+    showToast(message || "Sesi admin berakhir. Silakan login kembali.", true);
   }
 
   function applySettingsToUI() {
@@ -63,6 +221,131 @@
     // Update harga default di input modal pickup
     var pickupPrice = document.getElementById("pickup-price");
     if (pickupPrice) pickupPrice.value = appSettings.HARGA_PER_TABUNG || "20000";
+
+    const cooperativeName = appSettings.NAMA_KOPERASI || "Koperasi Desa Merah Putih (KDMP) Desa Gulun";
+    const nameInput = document.getElementById("setting-org-name");
+    if (nameInput) nameInput.value = cooperativeName;
+    const brandSubtitle = document.getElementById("brand-subtitle");
+    if (brandSubtitle) brandSubtitle.textContent = cooperativeName;
+    const brandBadge = document.getElementById("brand-badge");
+    const brandLogo = document.getElementById("brand-logo");
+    const logoPreview = document.getElementById("setting-org-logo-preview");
+    const emptyPreview = document.getElementById("setting-org-logo-empty");
+    const logoUrl = appSettings.LOGO_DATA_URL || appSettings.LOGO_URL || "";
+    if (brandLogo) {
+      brandLogo.hidden = !logoUrl;
+      if (logoUrl) brandLogo.src = logoUrl;
+      else brandLogo.removeAttribute("src");
+    }
+    if (brandBadge) {
+      brandBadge.textContent = cooperativeName;
+      brandBadge.hidden = !!logoUrl;
+    }
+    if (logoPreview) {
+      logoPreview.hidden = !logoUrl;
+      if (logoUrl) logoPreview.src = logoUrl;
+      else logoPreview.removeAttribute("src");
+    }
+    if (emptyPreview) emptyPreview.hidden = !!logoUrl;
+    const orgName = document.getElementById("public-org-name");
+    if (orgName) orgName.textContent = cooperativeName;
+    const orgDescription = document.getElementById("public-org-description");
+    if (orgDescription) orgDescription.textContent = cooperativeName;
+    const orgLocation = document.getElementById("public-org-location");
+    if (orgLocation) orgLocation.textContent = "Kantor " + cooperativeName;
+    const loginOrg = document.getElementById("login-org-name");
+    if (loginOrg) loginOrg.textContent = cooperativeName;
+    const membersOrg = document.getElementById("members-org-name");
+    if (membersOrg) membersOrg.textContent = cooperativeName;
+    document.title = cooperativeName + " - Sistem Distribusi Gas LPG";
+  }
+
+  function initCooperativeSettingsControls() {
+    const fileInput = document.getElementById("setting-org-logo");
+    if (!fileInput) return;
+    fileInput.addEventListener("change", function () {
+      const file = fileInput.files && fileInput.files[0];
+      const preview = document.getElementById("setting-org-logo-preview");
+      const empty = document.getElementById("setting-org-logo-empty");
+      if (!file) {
+        applySettingsToUI();
+        return;
+      }
+      if (["image/png", "image/jpeg", "image/webp"].indexOf(file.type) === -1 || file.size > 1024 * 1024) {
+        fileInput.value = "";
+        showToast("Logo harus PNG, JPEG, atau WebP dengan ukuran maksimal 1 MB.", true);
+        return;
+      }
+      if (preview) {
+        if (localLogoPreviewUrl) URL.revokeObjectURL(localLogoPreviewUrl);
+        localLogoPreviewUrl = URL.createObjectURL(file);
+        preview.src = localLogoPreviewUrl;
+        preview.hidden = false;
+      }
+      if (empty) empty.hidden = true;
+    });
+  }
+
+  function saveCooperativeSettings() {
+    if (!isAdmin || !getAdminToken()) {
+      showToast("Login admin diperlukan untuk mengubah identitas koperasi.", true);
+      return;
+    }
+    const nameInput = document.getElementById("setting-org-name");
+    const fileInput = document.getElementById("setting-org-logo");
+    const button = document.getElementById("save-org-settings-button");
+    const name = nameInput.value.trim();
+    const file = fileInput.files && fileInput.files[0];
+    if (name.length < 3 || name.length > 100) {
+      showToast("Nama koperasi harus berisi 3 sampai 100 karakter.", true);
+      return;
+    }
+    if (file && (["image/png", "image/jpeg", "image/webp"].indexOf(file.type) === -1 || file.size > 1024 * 1024)) {
+      showToast("Logo harus PNG, JPEG, atau WebP dengan ukuran maksimal 1 MB.", true);
+      return;
+    }
+
+    button.disabled = true;
+    const sendSettings = function (logoDataUrl) {
+      appScript.run
+        .withSuccessHandler(function (result) {
+          button.disabled = false;
+          if (!result || !result.success) {
+            if (result && result.code === 403) {
+              clearExpiredAdminSession("Sesi admin berakhir. Silakan login kembali untuk menyimpan identitas.");
+              return;
+            }
+            showToast(result && result.message ? result.message : "Pengaturan identitas gagal disimpan.", true);
+            return;
+          }
+          appSettings = result.settings;
+          cacheAppSettings(appSettings);
+          if (localLogoPreviewUrl) {
+            URL.revokeObjectURL(localLogoPreviewUrl);
+            localLogoPreviewUrl = "";
+          }
+          applySettingsToUI();
+          fileInput.value = "";
+          showToast(result.message || "Identitas koperasi berhasil disimpan.");
+        })
+        .withFailureHandler(function (error) {
+          button.disabled = false;
+          showToast(error && error.message ? error.message : "Pengaturan identitas gagal disimpan.", true);
+        })
+        .saveCooperativeSettings(name, logoDataUrl, getAdminToken());
+    };
+
+    if (!file) {
+      sendSettings("");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = function () { sendSettings(String(reader.result || "")); };
+    reader.onerror = function () {
+      button.disabled = false;
+      showToast("File logo tidak dapat dibaca oleh browser.", true);
+    };
+    reader.readAsDataURL(file);
   }
 
   // ==========================================
@@ -71,8 +354,24 @@
 
   function checkAuth() {
     const token = sessionStorage.getItem("KDMP_ADMIN_TOKEN");
-    isAdmin = !!token;
+    isAdmin = false;
     updateAuthUI();
+    if (!token) return;
+
+    appScript.run
+      .withSuccessHandler(function (result) {
+        if (!result || !result.success) {
+          clearExpiredAdminSession("Sesi admin tidak valid atau sudah berakhir. Silakan login kembali.");
+          return;
+        }
+        isAdmin = true;
+        updateAuthUI();
+        loadAdminDataOnce();
+      })
+      .withFailureHandler(function (error) {
+        clearExpiredAdminSession(error && error.message ? error.message : "Sesi admin tidak dapat diverifikasi. Silakan login kembali.");
+      })
+      .validateAdminSession(token);
   }
 
   function updateAuthUI() {
@@ -81,7 +380,7 @@
     const adminBadge = document.getElementById("admin-badge-group");
 
     // Tab publik: tab-public-home dan tab-dashboard
-    var adminOnlyTabs = ["tab-queue", "tab-members", "tab-settings"];
+    var adminOnlyTabs = ["tab-queue", "tab-members", "tab-sales-import", "tab-settings"];
 
     if (isAdmin) {
       adminTabs.forEach(function (t) { t.style.display = "inline-block"; });
@@ -128,19 +427,18 @@
     }
 
     showToast("Memverifikasi PIN Admin...");
-    google.script.run
+    appScript.run
       .withSuccessHandler(function (res) {
         if (res.success) {
           sessionStorage.setItem("KDMP_ADMIN_TOKEN", res.token);
           isAdmin = true;
+          adminDataLoaded = false;
           closeModal("modal-login");
           updateAuthUI();
           showToast(res.message);
 
           // Muat data admin dan pindah ke tab antrian
-          loadBatches();
-          loadDashboardData();
-          loadMembersData();
+          loadAdminDataOnce();
           switchTab("tab-queue");
         } else {
           showToast(res.message, true);
@@ -156,7 +454,7 @@
     const token = sessionStorage.getItem("KDMP_ADMIN_TOKEN");
     // Hapus session di server terlebih dahulu
     if (token) {
-      google.script.run.logoutAdmin(token);
+      appScript.run.logoutAdmin(token);
     }
     sessionStorage.removeItem("KDMP_ADMIN_TOKEN");
     isAdmin = false;
@@ -182,7 +480,7 @@
       return;
     }
 
-    google.script.run
+    appScript.run
       .withSuccessHandler(function (res) {
         if (res.success) {
           showToast(res.message);
@@ -203,7 +501,7 @@
   // ==========================================
 
   // Tab yang hanya boleh diakses admin
-  var ADMIN_ONLY_TABS = ["tab-queue", "tab-members", "tab-settings"];
+  var ADMIN_ONLY_TABS = ["tab-queue", "tab-members", "tab-sales-import", "tab-settings"];
 
   function switchTab(tabId) {
     // Validasi hak akses jika tab admin-only dibuka oleh tamu
@@ -257,7 +555,7 @@
   var allBatchesCache = [];
 
   function loadPublicData() {
-    google.script.run
+    appScript.run
       .withSuccessHandler(function (summary) {
         document.getElementById("public-stat-month-quota").textContent =
           (summary.totalGasDistributedMonth || 0) + " / " + (summary.monthlyTargetQuota || 100) + " Tabung";
@@ -290,7 +588,8 @@
         }
       })
       .withFailureHandler(function (err) {
-        console.error(err);
+        console.error("Gagal memuat ringkasan publik:", err);
+        showToast(err && err.message ? err.message : "Ringkasan publik gagal dimuat.", true);
       })
       .getDashboardSummary();
   }
@@ -340,13 +639,14 @@
   function loadPublicQueue(batchId) {
     var tbody = document.getElementById("public-queue-table-body");
     if (tbody) tbody.innerHTML = "<tr><td colspan='5' style='text-align:center;padding:20px;color:var(--text-muted);'>Memuat antrian...</td></tr>";
-    google.script.run
+    appScript.run
       .withSuccessHandler(function (queueList) {
         publicQueueCache = queueList || [];
         renderPublicQueueTable(publicQueueCache);
       })
       .withFailureHandler(function (err) {
-        console.error(err);
+        console.error("Gagal memuat antrian publik:", err);
+        showToast(err && err.message ? err.message : "Antrian publik gagal dimuat.", true);
       })
       .getQueueByBatch(batchId);
   }
@@ -404,7 +704,7 @@
 
   function loadBatches() {
     if (!isAdmin) return;
-    google.script.run
+    appScript.run
       .withSuccessHandler(function (batches) {
         currentBatches = batches || [];
         const select = document.getElementById("select-batch");
@@ -463,7 +763,7 @@
     document.getElementById("queue-cards-grid").style.display = "none";
     document.getElementById("queue-empty").style.display = "none";
 
-    google.script.run
+    appScript.run
       .withSuccessHandler(function (queueList) {
         document.getElementById("queue-loading").style.display = "none";
         currentQueue = queueList || [];
@@ -590,11 +890,11 @@
     msg += "Kami dari *" + appSettings.NAMA_KOPERASI + "* ingin menginformasikan bahwa pasokan gas LPG 3kg telah tiba di pangkalan.\n\n";
     msg += "\u{1F4CB} *No. Antrian Anda:* #" + noUrut + "\n";
     msg += "\u{1F4C5} *Jadwal Pengambilan:* " + batchDate + "\n";
-    msg += "\u{1F4CD} *Lokasi:* Kantor KDMP Desa Gulun\n";
+    msg += "\u{1F4CD} *Lokasi:* Kantor " + appSettings.NAMA_KOPERASI + "\n";
     msg += "\u{1F4B0} *Harga Resmi:* " + hargaFmt + " / tabung\n\n";
     msg += "Mohon kesediaannya untuk *segera mengambil tabung gas* di lokasi dengan membawa 1 tabung kosong dalam kondisi baik.\n\n";
     msg += "Terima kasih atas kerja samanya! \u{1F64F}\n";
-    msg += "_Pengurus KDMP Desa Gulun_";
+    msg += "_Pengurus " + appSettings.NAMA_KOPERASI + "_";
 
     var waUrl = "https://api.whatsapp.com/send?phone=" + cleanPhone + "&text=" + encodeURIComponent(msg);
     window.open(waUrl, "_blank");
@@ -602,7 +902,7 @@
     // Catat waktu pengiriman ke server Spreadsheet secara instan
     var capturedName = name;
     var capturedQueueId = queueId;
-    google.script.run
+    appScript.run
       .withSuccessHandler(function (res) {
         showToast("Pesan WA pengingat telah dikirim ke " + capturedName + "!");
         // Update badge UI secara langsung
@@ -614,6 +914,7 @@
       })
       .withFailureHandler(function (err) {
         console.error("Gagal mencatat timestamp WA:", err);
+        showToast(err && err.message ? err.message : "Pesan terkirim, tetapi waktu pengiriman gagal dicatat.", true);
       })
       .recordWaSent(capturedQueueId, getAdminToken());
   }
@@ -626,7 +927,7 @@
 
     if (confirm(`Generate 25 antrian otomatis untuk ${selectedBatchId} berdasarkan urutan prioritas adil?`)) {
       showToast("Sedang menghitung prioritas & meng-generate antrian...");
-      google.script.run
+      appScript.run
         .withSuccessHandler(function (res) {
           showToast(res.message);
           loadBatches();
@@ -662,7 +963,7 @@
       return;
     }
 
-    google.script.run
+    appScript.run
       .withSuccessHandler(function (res) {
         closeModal("modal-new-batch");
         showToast(res.message);
@@ -691,7 +992,7 @@
     const collector = document.getElementById("pickup-collector-name").value;
     const price = document.getElementById("pickup-price").value;
 
-    google.script.run
+    appScript.run
       .withSuccessHandler(function (res) {
         closeModal("modal-pickup");
         showToast(res.message);
@@ -741,7 +1042,7 @@
       return;
     }
 
-    google.script.run
+    appScript.run
       .withSuccessHandler(function (res) {
         closeModal("modal-swap");
         showToast(res.message);
@@ -782,7 +1083,7 @@
       return;
     }
 
-    google.script.run
+    appScript.run
       .withSuccessHandler(function (res) {
         closeModal("modal-replace");
         showToast(res.message);
@@ -805,7 +1106,7 @@
     var batch = currentBatches.find(function (b) { return b.id_batch === selectedBatchId; });
     var hargaFmt = getHargaFormatted();
     var kuota = appSettings.KUOTA_PER_BATCH || "25";
-    var text = "*DAFTAR ANTRIAN GAS LPG 3KG KDMP DESA GULUN*\n";
+    var text = "*DAFTAR ANTRIAN GAS LPG 3KG " + appSettings.NAMA_KOPERASI.toUpperCase() + "*\n";
     text += "\u{1F4C5} Jadwal: " + (batch ? batch.tgl_jadwal : "-") + " (Jumat Sore, 16:00 WIB)\n";
     text += "\u{1F4E6} Kuota: " + kuota + " Tabung\n";
     text += "--------------------------------------\n";
@@ -830,7 +1131,7 @@
 
   function loadDashboardData() {
     // Dashboard dapat dimuat oleh publik maupun admin
-    google.script.run
+    appScript.run
       .withSuccessHandler(function (data) {
         document.getElementById("stat-total-members").textContent = data.totalMembers || 0;
         document.getElementById("stat-monthly-quota").textContent =
@@ -841,18 +1142,20 @@
         document.getElementById("stat-unserved-count").textContent = data.unservedCountMonth || 0;
       })
       .withFailureHandler(function (err) {
-        console.error(err);
+        console.error("Gagal memuat dashboard:", err);
+        showToast(err && err.message ? err.message : "Dashboard gagal dimuat.", true);
       })
       .getDashboardSummary();
 
     // Muat data anggota (tidak butuh login — no WA tidak ditampilkan untuk publik)
-    google.script.run
+    appScript.run
       .withSuccessHandler(function (members) {
         allMembersCache = members || [];
         renderReportTable(allMembersCache);
       })
       .withFailureHandler(function (err) {
         console.error("Gagal memuat data anggota:", err);
+        showToast(err && err.message ? err.message : "Data anggota gagal dimuat.", true);
       })
       .getAllMembers();
   }
@@ -888,6 +1191,7 @@
       tr.innerHTML =
         "<td><strong>" + m.id_anggota + "</strong></td>" +
         "<td style='font-weight:600;'>" + m.nama_lengkap + "</td>" +
+        "<td>" + m.no_ktp || "-" + "</td>" +
         "<td>" + m.rt_rw + "</td>" +
         (isAdmin ? "<td>" + (m.no_whatsapp || "-") + "</td>" : "") +
         "<td style='text-align:center;font-weight:700;color:" + (isServed ? "var(--success)" : "var(--text-muted)") + ";'>" + m.total_beli_bulan_ini + "</td>" +
@@ -924,7 +1228,7 @@
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `Rekap_Gas_KDMP_Gulun_${new Date().toISOString().split("T")[0]}.csv`;
+    link.download = `Rekap_Gas_${(appSettings.NAMA_KOPERASI || "Koperasi").replace(/[^a-z0-9]+/gi, "_")}_${new Date().toISOString().split("T")[0]}.csv`;
     link.click();
   }
 
@@ -934,7 +1238,7 @@
 
   function loadMembersData() {
     if (!isAdmin) return;
-    google.script.run
+    appScript.run
       .withSuccessHandler(function (members) {
         allMembersCache = members || [];
         renderMemberTable(allMembersCache);
@@ -1035,7 +1339,7 @@
     if (memberId) {
       // Update — sertakan token untuk validasi server
       data.sessionToken = getAdminToken();
-      google.script.run
+      appScript.run
         .withSuccessHandler(function (res) {
           closeModal("modal-member");
           showToast(res.message);
@@ -1048,7 +1352,7 @@
     } else {
       // Add — sertakan token untuk validasi server
       data.sessionToken = getAdminToken();
-      google.script.run
+      appScript.run
         .withSuccessHandler(function (res) {
           closeModal("modal-member");
           showToast(res.message);
@@ -1064,7 +1368,7 @@
   function confirmResetMonth() {
     if (confirm("Apakah Anda yakin ingin mereset kuota bulanan? Kolom 'total_beli_bulan_ini' akan di-set menjadi 0 untuk semua anggota agar giliran bulan baru dimulai.")) {
       showToast("Sedang mereset kuota bulanan...");
-      google.script.run
+      appScript.run
         .withSuccessHandler(function (res) {
           showToast(res.message);
           loadMembersData();
@@ -1081,7 +1385,7 @@
   function importFromReference() {
     if (confirm("Salin data anggota warga Desa Gulun dari sheet 'template_simkopdes' ke dalam database? Data referensi asli tidak akan diubah.")) {
       showToast("Sedang membaca & menyalin data dari sheet template_simkopdes...");
-      google.script.run
+      appScript.run
         .withSuccessHandler(function (res) {
           showToast(res.message);
           loadMembersData();
@@ -1135,7 +1439,7 @@
     const reader = new FileReader();
     reader.onload = function () {
       const jsonText = String(reader.result || "");
-      google.script.run
+      appScript.run
         .withSuccessHandler(function (res) {
           button.disabled = false;
           if (!res || !res.success) {
@@ -1284,7 +1588,7 @@
     const button = document.getElementById("sales-import-commit-button");
     button.disabled = true;
     showToast("Mengimpor transaksi dan memperbarui riwayat anggota...");
-    google.script.run
+    appScript.run
       .withSuccessHandler(function (res) {
         if (!res || !res.success) {
           button.disabled = false;
