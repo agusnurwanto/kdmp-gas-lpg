@@ -7,7 +7,7 @@
 /**
  * Mengambil seluruh data anggota dengan opsi filter dan pencarian
  */
-function getAllMembers(options) {
+function getAllMembers_(options) {
   options = options || {};
   const db = getDatabase();
   const sheet = db.getSheetByName(CONFIG.SHEETS.ANGGOTA);
@@ -15,6 +15,17 @@ function getAllMembers(options) {
 
   if (values.length <= 1) {
     return [];
+  }
+
+  const expectedHeaders = [
+    "id_anggota", "no_ktp", "no_kk", "nama_lengkap", "rt_rw", "no_whatsapp",
+    "status_aktif", "total_beli_kumulatif", "total_beli_bulan_ini", "tgl_terakhir_beli", "catatan"
+  ];
+  const headersMatch = expectedHeaders.every(function (header, index) {
+    return String(values[0][index] || "").trim().toLowerCase() === header;
+  });
+  if (!headersMatch) {
+    throw new Error("Header sheet ANGGOTA tidak sesuai urutan skema aplikasi. Periksa header kolom tanpa mengubah data anggota.");
   }
 
   const members = [];
@@ -59,7 +70,6 @@ function getAllMembers(options) {
     if (filterUnserved && member.total_beli_bulan_ini > 0) {
       continue;
     }
-
     members.push(member);
   }
 
@@ -69,12 +79,33 @@ function getAllMembers(options) {
   });
 }
 
+function getAllMembers(options) {
+  return getAllMembers_(options).map(function (member) {
+    return {
+      id_anggota: member.id_anggota,
+      nama_lengkap: member.nama_lengkap,
+      rt_rw: member.rt_rw,
+      status_aktif: member.status_aktif,
+      total_beli_bulan_ini: member.total_beli_bulan_ini,
+      total_beli_kumulatif: member.total_beli_kumulatif,
+      tgl_terakhir_beli: member.tgl_terakhir_beli
+    };
+  });
+}
+
+function getAdminMembers(sessionToken) {
+  if (!validateSession(sessionToken)) {
+    throw new Error("Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.");
+  }
+  return getAllMembers_();
+}
+
 /**
  * Mengambil detail satu anggota berdasarkan ID atau NIK
  */
-function getMemberById(memberIdOrNik) {
+function getMemberById_(memberIdOrNik) {
   if (!memberIdOrNik) return null;
-  const members = getAllMembers();
+  const members = getAllMembers_();
   const query = String(memberIdOrNik).trim().toLowerCase();
   
   return members.find(m => 

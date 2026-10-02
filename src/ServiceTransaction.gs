@@ -14,17 +14,108 @@ function requireSalesImportSession(sessionToken) {
   }
 }
 
+function getSalesImportMappingSheet_(db) {
+  const spreadsheet = db || getDatabase();
+  let sheet = spreadsheet.getSheetByName("MAPPING_IMPOR_PENJUALAN");
+  if (sheet) return sheet;
+
+  sheet = spreadsheet.insertSheet("MAPPING_IMPOR_PENJUALAN");
+  const headers = [["nama_sumber_normalisasi", "nama_sumber", "id_anggota", "nama_anggota", "waktu_disimpan"]];
+  const seedMappings = Object.create(null);
+  const transactionSheet = spreadsheet.getSheetByName(CONFIG.SHEETS.TRANSAKSI_PENJUALAN);
+  const memberSheet = spreadsheet.getSheetByName(CONFIG.SHEETS.ANGGOTA);
+  if (transactionSheet && memberSheet) {
+    const memberValues = memberSheet.getDataRange().getValues();
+    const memberById = Object.create(null);
+    for (let i = 1; i < memberValues.length; i++) {
+      const id = String(memberValues[i][0] || "").trim();
+      if (id) memberById[id] = String(memberValues[i][3] || "").trim();
+    }
+    const transactionValues = transactionSheet.getDataRange().getValues();
+    for (let i = 1; i < transactionValues.length; i++) {
+      const row = transactionValues[i];
+      const note = String(row[10] || "");
+      const memberId = String(row[3] || "").trim();
+      const sourceName = String(row[9] || "").trim();
+      const memberName = memberById[memberId] || "";
+      const normalizedName = normalizeSalesImportName(sourceName);
+      if (String(row[8] || "") !== "IMPOR_HISTORIS" || !memberName || !normalizedName || note.indexOf("BELUM_MAPPING") !== -1) continue;
+      if (normalizeSalesImportName(memberName) !== normalizedName) continue;
+      seedMappings[normalizedName] = [normalizedName, sourceName, memberId, memberName, new Date()];
+    }
+  }
+
+  sheet.getRange(1, 1, 1, headers[0].length).setValues(headers).setFontWeight("bold");
+  const seedRows = Object.keys(seedMappings).sort().map(function (key) { return seedMappings[key]; });
+  if (seedRows.length) sheet.getRange(2, 1, seedRows.length, headers[0].length).setValues(seedRows);
+  sheet.setFrozenRows(1);
+  return sheet;
+}
+
+function getSalesImportMappings_(db) {
+  const values = getSalesImportMappingSheet_(db).getDataRange().getValues();
+  const mappings = Object.create(null);
+  for (let i = 1; i < values.length; i++) {
+    const normalizedName = String(values[i][0] || "").trim();
+    const memberId = String(values[i][2] || "").trim();
+    if (!normalizedName || !memberId) continue;
+    mappings[normalizedName] = {
+      memberId: memberId,
+      memberName: String(values[i][3] || "").trim()
+    };
+  }
+  return mappings;
+}
+
+function saveSalesImportMappings_(db, mappings) {
+  const entries = Object.keys(mappings || {}).map(function (key) { return mappings[key]; }).filter(function (item) {
+    return item && normalizeSalesImportName(item.sourceName) && item.memberId;
+  });
+  if (!entries.length) return;
+
+  const sheet = getSalesImportMappingSheet_(db);
+  const values = sheet.getDataRange().getValues();
+  const rowByName = Object.create(null);
+  for (let i = 1; i < values.length; i++) {
+    const key = String(values[i][0] || "").trim();
+    if (key) rowByName[key] = i + 1;
+  }
+  const newRows = [];
+  const savedAt = new Date();
+  entries.forEach(function (item) {
+    const normalizedName = normalizeSalesImportName(item.sourceName);
+    const row = [normalizedName, String(item.sourceName).trim(), String(item.memberId), String(item.memberName || "").trim(), savedAt];
+    const existingRow = rowByName[normalizedName];
+    if (existingRow) sheet.getRange(existingRow, 1, 1, row.length).setValues([row]);
+    else {
+      rowByName[normalizedName] = values.length + newRows.length + 1;
+      newRows.push(row);
+    }
+  });
+  if (newRows.length) sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, 5).setValues(newRows);
+}
+
 function getSalesImportBatchSchedule(date) {
   const localDate = Utilities.formatDate(date, "Asia/Jakarta", "yyyy-MM-dd");
-  const localTime = Utilities.formatDate(date, "Asia/Jakarta", "HH:mm:ss");
   const parts = localDate.split("-").map(Number);
   const scheduleDate = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
   const day = scheduleDate.getUTCDay();
-  let daysSinceFriday = (day - 5 + 7) % 7;
-  if (daysSinceFriday === 0 && localTime < "16:00:00") daysSinceFriday = 7;
+  const daysSinceFriday = (day - 5 + 7) % 7;
   scheduleDate.setUTCDate(scheduleDate.getUTCDate() - daysSinceFriday);
   const dateText = Utilities.formatDate(scheduleDate, "Asia/Jakarta", "yyyy-MM-dd");
-  return { date: dateText, id: "BATCH-" + dateText.replace(/-/g, "") + "-01" };
+  const periodEnd = new Date(scheduleDate.getTime());
+  periodEnd.setUTCDate(periodEnd.getUTCDate() + 6);
+  return {
+    date: dateText,
+    periodEnd: Utilities.formatDate(periodEnd, "Asia/Jakarta", "yyyy-MM-dd"),
+    id: "BATCH-" + dateText.replace(/-/g, "") + "-01"
+  };
+}
+
+function getSalesImportBatchVolumeStatus(units) {
+  if (units < 20) return { code: "DI_BAWAH_TARGET", label: "Perlu tinjau: di bawah 20" };
+  if (units > 30) return { code: "DI_ATAS_TARGET", label: "Perlu tinjau: di atas 30" };
+  return { code: "SESUAI_TARGET", label: "Sesuai target 20–30" };
 }
 
 function prepareSalesImport(jsonText, fileName) {
@@ -115,6 +206,7 @@ function prepareSalesImport(jsonText, fileName) {
   const members = [];
   const byNik = Object.create(null);
   const byName = Object.create(null);
+  const memberById = Object.create(null);
   for (let i = 1; i < memberValues.length; i++) {
     const row = memberValues[i];
     const member = {
@@ -125,6 +217,7 @@ function prepareSalesImport(jsonText, fileName) {
     };
     if (!member.id || !member.name) continue;
     members.push({ id_anggota: member.id, nama_lengkap: member.name });
+    memberById[member.id] = member;
     if (/^\d{16}$/.test(member.nik)) {
       if (!byNik[member.nik]) byNik[member.nik] = [];
       byNik[member.nik].push(member);
@@ -133,6 +226,7 @@ function prepareSalesImport(jsonText, fileName) {
     byName[member.normalizedName].push(member);
   }
 
+  const savedMappings = getSalesImportMappings_(db);
   const matches = normalizedCustomers.map(function(customer) {
     let memberMatches = [];
     let matchStatus = "unmatched";
@@ -145,11 +239,15 @@ function prepareSalesImport(jsonText, fileName) {
       if (memberMatches.length === 1) matchStatus = "matched_name";
       else if (memberMatches.length > 1) matchStatus = "ambiguous_name";
     }
+    const savedMapping = savedMappings[normalizeSalesImportName(customer.name)];
+    const suggestedMember = savedMapping && memberById[savedMapping.memberId];
     return {
       customer: customer,
       matchStatus: matchStatus,
       matchedMemberId: memberMatches.length === 1 ? memberMatches[0].id : "",
       matchedMemberName: memberMatches.length === 1 ? memberMatches[0].name : "",
+      suggestedMemberId: matchStatus === "matched_nik" || matchStatus === "matched_name" || !suggestedMember ? "" : suggestedMember.id,
+      suggestedMemberName: matchStatus === "matched_nik" || matchStatus === "matched_name" || !suggestedMember ? "" : suggestedMember.name,
       candidates: memberMatches.map(function(member) {
         return { id_anggota: member.id, nama_lengkap: member.name };
       })
@@ -182,7 +280,13 @@ function getSalesImportPreview(jsonText, fileName, sessionToken) {
     if (duplicate) counts.duplicates++;
     if (!duplicate) {
       const schedule = item.customer.batchSchedule;
-      if (!batchPlanById[schedule.id]) batchPlanById[schedule.id] = { batchId: schedule.id, date: schedule.date, units: 0, customers: 0 };
+      if (!batchPlanById[schedule.id]) batchPlanById[schedule.id] = {
+        batchId: schedule.id,
+        date: schedule.date,
+        periodEnd: schedule.periodEnd,
+        units: 0,
+        customers: 0
+      };
       batchPlanById[schedule.id].units += item.customer.quantity;
       batchPlanById[schedule.id].customers++;
     }
@@ -197,6 +301,8 @@ function getSalesImportPreview(jsonText, fileName, sessionToken) {
       matchStatus: item.matchStatus,
       matchedMemberId: item.matchedMemberId,
       matchedMemberName: item.matchedMemberName,
+      suggestedMemberId: item.suggestedMemberId,
+      suggestedMemberName: item.suggestedMemberName,
       candidates: item.candidates,
       duplicate: duplicate
     };
@@ -207,7 +313,11 @@ function getSalesImportPreview(jsonText, fileName, sessionToken) {
     summary: prepared.summary,
     suggestedPrice: prepared.suggestedPrice,
     counts: counts,
-    batchPlan: Object.keys(batchPlanById).sort().map(function(batchId) { return batchPlanById[batchId]; }),
+    batchPlan: Object.keys(batchPlanById).sort().map(function(batchId) {
+      const batch = batchPlanById[batchId];
+      batch.volumeStatus = getSalesImportBatchVolumeStatus(batch.units);
+      return batch;
+    }),
     customers: previewCustomers,
     members: prepared.members
   };
@@ -263,6 +373,7 @@ function importSalesFromJson(jsonText, fileName, unitPrice, mappingDecisions, se
     const insertedByMember = Object.create(null);
     const importedByBatch = Object.create(null);
     const pendingRows = [];
+    const mappingsToSave = Object.create(null);
     let importedUnits = 0;
     let duplicateCount = 0;
 
@@ -275,9 +386,10 @@ function importSalesFromJson(jsonText, fileName, unitPrice, mappingDecisions, se
 
       let memberId = item.matchedMemberId;
       let memberName = item.matchedMemberName;
-      const decision = Object.prototype.hasOwnProperty.call(mappingDecisions, item.customer.customerReportId)
+      const hasDecision = Object.prototype.hasOwnProperty.call(mappingDecisions, item.customer.customerReportId);
+      const decision = hasDecision
         ? mappingDecisions[item.customer.customerReportId]
-        : "";
+        : item.suggestedMemberId;
       const explicitMemberId = String(decision || "").trim();
       if (explicitMemberId) {
         if (item.matchStatus === "matched_nik" || item.matchStatus === "matched_name") {
@@ -292,6 +404,11 @@ function importSalesFromJson(jsonText, fileName, unitPrice, mappingDecisions, se
       }
       const isPendingMapping = !memberId || !memberById[memberId];
       if (isPendingMapping) pendingRows.push({ name: item.customer.name, status: item.matchStatus, quantity: item.customer.quantity });
+      else mappingsToSave[normalizeSalesImportName(item.customer.name)] = {
+        sourceName: item.customer.name,
+        memberId: memberId,
+        memberName: memberName || memberById[memberId].name
+      };
 
       const createdMonth = Utilities.formatDate(item.customer.createdAt, "Asia/Jakarta", "yyyy-MM");
       const createdAt = Utilities.formatDate(item.customer.createdAt, "Asia/Jakarta", "yyyy-MM-dd HH:mm:ss");
@@ -309,7 +426,11 @@ function importSalesFromJson(jsonText, fileName, unitPrice, mappingDecisions, se
         isPendingMapping ? item.customer.name : memberName,
         "IMPOR JSON [" + fileName + "]" + (isPendingMapping ? " | BELUM_MAPPING" : "")
       ]);
-      if (!importedByBatch[schedule.id]) importedByBatch[schedule.id] = { date: schedule.date, units: 0 };
+      if (!importedByBatch[schedule.id]) importedByBatch[schedule.id] = {
+        date: schedule.date,
+        periodEnd: schedule.periodEnd,
+        units: 0
+      };
       importedByBatch[schedule.id].units += item.customer.quantity;
       importedUnits += item.customer.quantity;
       existingIds[transactionId] = true;
@@ -336,12 +457,14 @@ function importSalesFromJson(jsonText, fileName, unitPrice, mappingDecisions, se
     const importedBatchIds = Object.keys(importedByBatch).sort();
     importedBatchIds.forEach(function(batchId) {
       const imported = importedByBatch[batchId];
+      const volumeStatus = getSalesImportBatchVolumeStatus(imported.units);
+      const statusNote = volumeStatus.code === "SESUAI_TARGET" ? "" : " | " + volumeStatus.code + " (target 20-30 tabung)";
       let rowIndex = batchRowById[batchId];
       if (!rowIndex) {
         rowIndex = batchSheet.getLastRow() + 1;
         batchSheet.getRange(rowIndex, 1, 1, 9).setValues([[
           batchId, imported.date, "Jumat", "16:00 WIB", imported.units,
-          imported.units, 0, "SELESAI", "Dibuat otomatis dari impor penjualan JSON [" + fileName + "]"
+          imported.units, 0, "SELESAI", "Dibuat otomatis dari impor penjualan JSON [" + fileName + "]" + statusNote
         ]]);
         return;
       }
@@ -351,7 +474,7 @@ function importSalesFromJson(jsonText, fileName, unitPrice, mappingDecisions, se
       const newTaken = Number(batchRow[5] || 0) + imported.units;
       const remaining = Math.max(0, newStock - newTaken);
       const oldNote = String(batchRow[8] || "").trim();
-      const importNote = "Impor JSON [" + fileName + "]: +" + imported.units + " tabung";
+      const importNote = "Impor JSON [" + fileName + "]: +" + imported.units + " tabung" + statusNote;
       batchSheet.getRange(rowIndex, 5, 1, 4).setValues([[
         newStock, newTaken, remaining, remaining === 0 ? "SELESAI" : "DISTRIBUSI_BERJALAN"
       ]]);
@@ -374,6 +497,8 @@ function importSalesFromJson(jsonText, fileName, unitPrice, mappingDecisions, se
       memberSheet.getRange(rowIndex, 8, 1, 3).setValues([currentStats[memberId]]);
     });
 
+    saveSalesImportMappings_(db, mappingsToSave);
+
     const importedTotal = importedUnits * price;
     return {
       success: true,
@@ -382,7 +507,14 @@ function importSalesFromJson(jsonText, fileName, unitPrice, mappingDecisions, se
       importedUnits: importedUnits,
       pendingMappingCount: pendingRows.length,
       importedBatches: importedBatchIds.map(function(batchId) {
-        return { batchId: batchId, date: importedByBatch[batchId].date, units: importedByBatch[batchId].units };
+        const imported = importedByBatch[batchId];
+        return {
+          batchId: batchId,
+          date: imported.date,
+          periodEnd: imported.periodEnd,
+          units: imported.units,
+          volumeStatus: getSalesImportBatchVolumeStatus(imported.units)
+        };
       }),
       totalAmount: importedTotal,
       duplicateCount: duplicateCount,
@@ -454,6 +586,14 @@ function resolvePendingSalesImport(transactionId, memberId, sessionToken) {
     transactionSheet.getRange(transactionRowIndex, 4).setValue(memberIdText);
     transactionSheet.getRange(transactionRowIndex, 10).setValue(memberName);
     transactionSheet.getRange(transactionRowIndex, 11).setValue(String(transaction[10]).replace("BELUM_MAPPING", "DIMAPPING_ADMIN"));
+
+    saveSalesImportMappings_(db, {
+      [normalizeSalesImportName(transaction[9])]: {
+        sourceName: String(transaction[9] || "").trim(),
+        memberId: memberIdText,
+        memberName: memberName
+      }
+    });
 
     const member = memberValues[memberRowIndex - 1];
     const quantity = Number(transaction[5] || 0);
@@ -563,7 +703,7 @@ function confirmPickupAndPayment(params) {
   const nowStr = Utilities.formatDate(now, "Asia/Jakarta", "yyyy-MM-dd HH:mm:ss");
   const dateCode = Utilities.formatDate(now, "Asia/Jakarta", "yyyyMMdd");
 
-  const actualMember = getMemberById(actualBuyerMemberId);
+  const actualMember = getMemberById_(actualBuyerMemberId);
   const memberName = actualMember ? actualMember.nama_lengkap : actualBuyerMemberId;
 
   // 1. Catat ke sheet TRANSAKSI_PENJUALAN

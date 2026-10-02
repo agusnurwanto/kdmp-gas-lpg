@@ -62,7 +62,7 @@ function handleApiGet(params) {
         return ContentService.createTextOutput(JSON.stringify(unauthorizedResponse()))
           .setMimeType(ContentService.MimeType.JSON);
       }
-      const member = getMemberById(params.id || params.memberId || params.query);
+      const member = getMemberById_(params.id || params.memberId || params.query);
       result = member
         ? { success: true, data: member }
         : { success: false, message: "Anggota tidak ditemukan." };
@@ -78,7 +78,7 @@ function handleApiGet(params) {
       }
       result = {
         success: true,
-        data: getAllMembers({
+        data: getAllMembers_({
           search: params.search,
           status: params.status,
           unservedOnly: params.unservedOnly
@@ -149,7 +149,7 @@ function handleApiPost(data) {
         };
       }
       // Dengan auth: kembalikan data lengkap
-      return { success: true, data: getAllMembers(data.options) };
+      return { success: true, data: getAllMembers_(data.options) };
   }
 
   // ── Semua action berikut WAJIB autentikasi ────────────────────────────────

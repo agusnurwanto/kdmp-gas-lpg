@@ -3,8 +3,10 @@
   let currentBatches = [];
   let currentQueue = [];
   let allMembersCache = [];
+  let reportSort = { key: "priority", direction: 1 };
   let selectedBatchId = "";
   let publicQueueCache = [];
+  let publicQueueRequestId = 0;
   let isAdmin = false;
   let salesImportState = null;
   let activeServerRequests = 0;
@@ -383,7 +385,7 @@
     var adminOnlyTabs = ["tab-queue", "tab-members", "tab-sales-import", "tab-settings"];
 
     if (isAdmin) {
-      adminTabs.forEach(function (t) { t.style.display = "inline-block"; });
+      adminTabs.forEach(function (t) { t.style.display = t.tagName === "TH" ? "table-cell" : "inline-block"; });
       if (btnLogin) btnLogin.style.display = "none";
       if (adminBadge) adminBadge.style.display = "flex";
       // Tampilkan kolom WA dan tombol CSV
@@ -640,18 +642,23 @@
   }
 
   function loadPublicQueue(batchId) {
+    var requestBatchId = String(batchId || "").trim();
+    var requestId = ++publicQueueRequestId;
     var tbody = document.getElementById("public-queue-table-body");
     if (tbody) tbody.innerHTML = "<tr><td colspan='5' style='text-align:center;padding:20px;color:var(--text-muted);'>Memuat antrian...</td></tr>";
     appScript.run
       .withSuccessHandler(function (queueList) {
+        var filterEl = document.getElementById("public-batch-filter");
+        if (requestId !== publicQueueRequestId || !filterEl || String(filterEl.value || "").trim() !== requestBatchId) return;
         publicQueueCache = queueList || [];
         renderPublicQueueTable(publicQueueCache);
       })
       .withFailureHandler(function (err) {
+        if (requestId !== publicQueueRequestId) return;
         console.error("Gagal memuat antrian publik:", err);
         showToast(err && err.message ? err.message : "Antrian publik gagal dimuat.", true);
       })
-      .getQueueByBatch(batchId);
+      .getQueueByBatch(requestBatchId);
   }
 
   function renderPublicQueueTable(items) {
@@ -1150,17 +1157,59 @@
       })
       .getDashboardSummary();
 
-    // Muat data anggota (tidak butuh login — no WA tidak ditampilkan untuk publik)
-    appScript.run
+    // Data publik disanitasi di server; data lengkap hanya dimuat dengan sesi admin.
+    var memberRequest = appScript.run
       .withSuccessHandler(function (members) {
+        if (isAdmin) return;
         allMembersCache = members || [];
         renderReportTable(allMembersCache);
       })
       .withFailureHandler(function (err) {
         console.error("Gagal memuat data anggota:", err);
         showToast(err && err.message ? err.message : "Data anggota gagal dimuat.", true);
-      })
-      .getAllMembers();
+      });
+    if (isAdmin) memberRequest.getAdminMembers(getAdminToken());
+    else memberRequest.getAllMembers();
+  }
+
+  function reportColumnCount() {
+    return isAdmin ? 8 : 7;
+  }
+
+  function compareReportMembers(a, b) {
+    var key = reportSort.key;
+    if (key === "priority") {
+      var priorityOrder = Number(a.total_beli_bulan_ini > 0) - Number(b.total_beli_bulan_ini > 0);
+      if (priorityOrder) return priorityOrder;
+      return String(a.nama_lengkap || "").localeCompare(String(b.nama_lengkap || ""), "id") ||
+        String(a.id_anggota || "").localeCompare(String(b.id_anggota || ""), "id", { numeric: true });
+    }
+
+    var left = key === "status_kuota" ? Number(a.total_beli_bulan_ini || 0) : a[key];
+    var right = key === "status_kuota" ? Number(b.total_beli_bulan_ini || 0) : b[key];
+    var leftBlank = left === null || left === undefined || left === "" || left === "-";
+    var rightBlank = right === null || right === undefined || right === "" || right === "-";
+    if (leftBlank || rightBlank) return leftBlank === rightBlank ? 0 : (leftBlank ? 1 : -1);
+
+    var comparison;
+    if (key === "total_beli_bulan_ini" || key === "total_beli_kumulatif" || key === "status_kuota") {
+      comparison = Number(left) - Number(right);
+    } else if (key === "tgl_terakhir_beli") {
+      comparison = Date.parse(String(left).replace(" ", "T")) - Date.parse(String(right).replace(" ", "T"));
+    } else {
+      comparison = String(left).localeCompare(String(right), "id", { numeric: true, sensitivity: "base" });
+    }
+
+    if (comparison === 0) {
+      comparison = String(a.id_anggota || "").localeCompare(String(b.id_anggota || ""), "id", { numeric: true });
+    }
+    return comparison * reportSort.direction;
+  }
+
+  function sortReportTable(key) {
+    if (reportSort.key === key) reportSort.direction *= -1;
+    else reportSort = { key: key, direction: 1 };
+    filterReportTable();
   }
 
   function renderReportTable(members) {
@@ -1168,51 +1217,73 @@
     if (!tbody) return;
     tbody.innerHTML = "";
 
+    var countBadge = document.getElementById("report-count-badge");
+    if (countBadge) countBadge.textContent = (members ? members.length : 0) + " anggota";
+
+    document.querySelectorAll("#report-table thead th[data-sort-key]").forEach(function (th) {
+      var active = th.dataset.sortKey === reportSort.key;
+      th.setAttribute("aria-sort", active ? (reportSort.direction === 1 ? "ascending" : "descending") : "none");
+      var indicator = th.querySelector(".report-sort-indicator");
+      if (indicator) indicator.textContent = active ? (reportSort.direction === 1 ? "▲" : "▼") : "↕";
+    });
+
     if (!members || members.length === 0) {
-      tbody.innerHTML = "<tr><td colspan='8' style='text-align: center; padding: 20px;'>Tidak ada data anggota.</td></tr>";
+      var emptyRow = document.createElement("tr");
+      var emptyCell = document.createElement("td");
+      emptyCell.colSpan = reportColumnCount();
+      emptyCell.style.textAlign = "center";
+      emptyCell.style.padding = "20px";
+      emptyCell.textContent = "Tidak ada data anggota.";
+      emptyRow.appendChild(emptyCell);
+      tbody.appendChild(emptyRow);
       return;
     }
 
-    // Urutkan: belum dapat (prioritas) duluan, kemudian sudah dapat diurutkan abjad nama
-    var sorted = members.slice().sort(function (a, b) {
-      if (a.total_beli_bulan_ini === 0 && b.total_beli_bulan_ini > 0) return -1;
-      if (a.total_beli_bulan_ini > 0 && b.total_beli_bulan_ini === 0) return 1;
-      return a.nama_lengkap.localeCompare(b.nama_lengkap, "id");
-    });
-
-    // Update badge count
-    var countBadge = document.getElementById("report-count-badge");
-    if (countBadge) countBadge.textContent = sorted.length + " anggota";
-
-    sorted.forEach(function (m) {
+    members.slice().sort(compareReportMembers).forEach(function (m) {
       var tr = document.createElement("tr");
       var isServed = m.total_beli_bulan_ini > 0;
-      var statusBadge = isServed
-        ? "<span class='kpi-badge badge-success'>&#10003; Sudah Ambil (" + m.total_beli_bulan_ini + ")</span>"
-        : "<span class='kpi-badge badge-primary'>&#9203; Belum Dapat (Prioritas)</span>";
-
-      tr.innerHTML =
-        "<td><strong>" + m.id_anggota + "</strong></td>" +
-        "<td style='font-weight:600;'>" + m.nama_lengkap + "</td>" +
-        "<td>" + m.no_ktp || "-" + "</td>" +
-        "<td>" + m.rt_rw + "</td>" +
-        (isAdmin ? "<td>" + (m.no_whatsapp || "-") + "</td>" : "") +
-        "<td style='text-align:center;font-weight:700;color:" + (isServed ? "var(--success)" : "var(--text-muted)") + ";'>" + m.total_beli_bulan_ini + "</td>" +
-        "<td style='text-align:center;font-weight:700;'>" + m.total_beli_kumulatif + "</td>" +
-        "<td>" + (m.tgl_terakhir_beli || "-") + "</td>" +
-        "<td>" + statusBadge + "</td>";
+      var cells = [
+        { value: m.id_anggota || "-", strong: true },
+        { value: m.nama_lengkap || "-" },
+        { value: m.rt_rw || "-" }
+      ];
+      if (isAdmin) cells.push({ value: m.no_whatsapp || "-" });
+      cells.push(
+        { value: m.total_beli_bulan_ini || 0 },
+        { value: m.total_beli_kumulatif || 0 },
+        { value: m.tgl_terakhir_beli || "-" },
+        { badge: true, value: isServed ? "Sudah Ambil (" + m.total_beli_bulan_ini + ")" : "Belum Dapat (Prioritas)", className: isServed ? "kpi-badge badge-success" : "kpi-badge badge-primary" }
+      );
+      cells.forEach(function (cellData) {
+        var cell = document.createElement("td");
+        if (cellData.badge) {
+          var badge = document.createElement("span");
+          badge.className = cellData.className;
+          badge.textContent = cellData.value;
+          cell.appendChild(badge);
+        } else {
+          cell.textContent = String(cellData.value);
+          if (cellData.strong) {
+            var strong = document.createElement("strong");
+            strong.textContent = cell.textContent;
+            cell.textContent = "";
+            cell.appendChild(strong);
+          }
+        }
+        tr.appendChild(cell);
+      });
       tbody.appendChild(tr);
     });
   }
 
   function filterReportTable() {
-    var query = document.getElementById("report-search").value.toLowerCase().trim();
+    var query = String(document.getElementById("report-search").value || "").toLowerCase().trim();
     var filterStatus = document.getElementById("report-filter-status").value;
 
     var filtered = allMembersCache.filter(function (m) {
-      var matchSearch = m.nama_lengkap.toLowerCase().includes(query) ||
-        m.id_anggota.toLowerCase().includes(query) ||
-        m.rt_rw.toLowerCase().includes(query);
+      var matchSearch = String(m.nama_lengkap || "").toLowerCase().includes(query) ||
+        String(m.id_anggota || "").toLowerCase().includes(query) ||
+        String(m.rt_rw || "").toLowerCase().includes(query);
       var matchStatus = true;
       if (filterStatus === "UNSERVED") matchStatus = (m.total_beli_bulan_ini === 0);
       if (filterStatus === "SERVED") matchStatus = (m.total_beli_bulan_ini > 0);
@@ -1223,12 +1294,26 @@
   }
 
   function exportReportToCSV() {
-    let csv = "ID Anggota,Nama Lengkap,NIK,RT/RW,No WA,Status,Beli Bulan Ini,Total Kumulatif,Terakhir Beli\n";
-    allMembersCache.forEach(m => {
-      csv += `"${m.id_anggota}","${m.nama_lengkap}","${m.no_ktp}","${m.rt_rw}","${m.no_whatsapp}","${m.status_aktif}",${m.total_beli_bulan_ini},${m.total_beli_kumulatif},"${m.tgl_terakhir_beli}"\n`;
+    if (!isAdmin) return;
+    var csvColumns = [
+      ["ID Anggota", function (m) { return m.id_anggota; }],
+      ["Nama Lengkap", function (m) { return m.nama_lengkap; }],
+      ["RT/RW", function (m) { return m.rt_rw; }],
+      ["No HP/WA", function (m) { return m.no_whatsapp; }],
+      ["Beli Bulan Ini", function (m) { return m.total_beli_bulan_ini; }],
+      ["Total Kumulatif", function (m) { return m.total_beli_kumulatif; }],
+      ["Terakhir Ambil Gas", function (m) { return m.tgl_terakhir_beli; }],
+      ["Status Kuota", function (m) { return m.total_beli_bulan_ini > 0 ? "Sudah Ambil" : "Belum Dapat"; }]
+    ];
+    var csv = csvColumns.map(function (column) { return column[0]; }).join(",") + "\n";
+    allMembersCache.forEach(function (member) {
+      csv += csvColumns.map(function (column) {
+        var value = column[1](member);
+        return '"' + String(value == null ? "" : value).replace(/"/g, '""') + '"';
+      }).join(",") + "\n";
     });
 
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = `Rekap_Gas_${(appSettings.NAMA_KOPERASI || "Koperasi").replace(/[^a-z0-9]+/gi, "_")}_${new Date().toISOString().split("T")[0]}.csv`;
@@ -1254,7 +1339,7 @@
       .withFailureHandler(function (err) {
         showToast(err.message, true);
       })
-      .getAllMembers();
+      .getAdminMembers(getAdminToken());
   }
 
   function memberAutocompleteLabel(member) {
@@ -1546,8 +1631,21 @@
     salesImportState = null;
     document.getElementById("sales-import-preview").style.display = "none";
     document.getElementById("sales-import-result").textContent = "";
+    document.getElementById("sales-import-summary").textContent = "";
+    document.getElementById("sales-import-mapping").textContent = "";
+    document.getElementById("sales-import-price").value = "";
     document.getElementById("sales-import-price-confirm").checked = false;
     document.getElementById("sales-import-commit-button").disabled = true;
+  }
+
+  function resetSalesImportForm() {
+    document.getElementById("sales-import-file").value = "";
+    resetSalesImportPreview();
+  }
+
+  function closeSalesImportPriceWarning() {
+    closeModal("modal-sales-import-price-warning");
+    document.getElementById("sales-import-price-confirm").focus();
   }
 
   function previewSalesImport() {
@@ -1615,7 +1713,10 @@
       ["Usulan harga per tabung", preview.suggestedPrice === null ? "Wajib diisi manual" : formatSalesImportCurrency(preview.suggestedPrice)]
     ];
     (preview.batchPlan || []).forEach(function (batch) {
-      rows.push(["Estimasi batch " + batch.date + " (Jumat 16.00) · " + batch.customers + " pelanggan", batch.batchId + " · " + batch.units + " tabung"]);
+      rows.push([
+        "Periode " + batch.date + " s.d. " + batch.periodEnd + " · " + batch.customers + " pelanggan",
+        batch.batchId + " · " + batch.units + " tabung · " + batch.volumeStatus.label
+      ]);
     });
     const body = document.createElement("tbody");
     rows.forEach(function (row) {
@@ -1676,9 +1777,17 @@
       input.dataset.customerReportId = customer.customerReportId;
       input.placeholder = "Ketik nama anggota...";
       input.setAttribute("aria-label", "Pilih anggota untuk " + customer.name);
+      if (customer.suggestedMemberId && customer.suggestedMemberName) {
+        input.value = memberAutocompleteLabel({
+          id_anggota: customer.suggestedMemberId,
+          nama_lengkap: customer.suggestedMemberName
+        });
+        input.title = "Saran mapping tersimpan. Periksa dan ubah bila bukan anggota yang benar.";
+      }
       name.textContent = customer.name;
       quantity.textContent = String(customer.quantity);
-      status.textContent = customer.matchStatus.replace(/_/g, " ");
+      status.textContent = customer.matchStatus.replace(/_/g, " ") +
+        (customer.suggestedMemberId ? " · saran mapping tersimpan" : "");
       choiceCell.appendChild(input);
       row.appendChild(name);
       row.appendChild(quantity);
@@ -1696,8 +1805,7 @@
 
   function updateSalesImportButton() {
     const price = Number(document.getElementById("sales-import-price").value);
-    const confirmed = document.getElementById("sales-import-price-confirm").checked;
-    document.getElementById("sales-import-commit-button").disabled = !salesImportState || !confirmed || !Number.isInteger(price) || price <= 0;
+    document.getElementById("sales-import-commit-button").disabled = !salesImportState || !Number.isInteger(price) || price <= 0;
   }
 
   function commitSalesImport() {
@@ -1706,15 +1814,22 @@
       return;
     }
     const unitPrice = Number(document.getElementById("sales-import-price").value);
-    if (!Number.isInteger(unitPrice) || unitPrice <= 0 || !document.getElementById("sales-import-price-confirm").checked) {
-      showToast("Masukkan dan konfirmasi harga historis berupa bilangan bulat positif.", true);
+    if (!Number.isInteger(unitPrice) || unitPrice <= 0) {
+      showToast("Masukkan harga historis berupa bilangan bulat positif.", true);
       return;
     }
-    if (!confirm("Impor transaksi periode " + salesImportState.preview.period + " dengan harga " + formatSalesImportCurrency(unitPrice) + " per tabung? Batch dibuat per pekan Jumat pukul 16.00. Duplikat dilewati; pelanggan tanpa pemetaan disimpan untuk tindak lanjut admin.")) return;
+    if (!document.getElementById("sales-import-price-confirm").checked) {
+      openModal("modal-sales-import-price-warning");
+      return;
+    }
+    if (!confirm("Impor transaksi periode " + salesImportState.preview.period + " dengan harga " + formatSalesImportCurrency(unitPrice) + " per tabung? Penjualan dikelompokkan ke periode Jumat–Kamis menurut tanggal transaksi. Volume batch di luar 20–30 ditandai untuk ditinjau, tidak dipindahkan antarpekan. Duplikat dilewati; pelanggan tanpa pemetaan disimpan untuk tindak lanjut admin.")) return;
 
     const decisions = {};
     document.querySelectorAll("#sales-import-mapping input[data-customer-report-id]").forEach(function (input) {
-      if (!input.value.trim()) return;
+      if (!input.value.trim()) {
+        decisions[input.dataset.customerReportId] = "";
+        return;
+      }
       const member = (salesImportState.preview.members || []).find(function (candidate) {
         return memberAutocompleteLabel(candidate) === input.value.trim();
       });
@@ -1742,13 +1857,11 @@
         const result = document.getElementById("sales-import-result");
         result.textContent = "Selesai: " + res.importedTransactions + " transaksi, " + res.importedUnits + " tabung, total " + formatSalesImportCurrency(res.totalAmount) + "; " + res.duplicateCount + " duplikat dilewati; " + (res.pendingMappingCount || 0) + " transaksi menunggu mapping admin.";
         if (res.importedBatches && res.importedBatches.length) {
-          result.textContent += " Batch Jumat: " + res.importedBatches.map(function (batch) {
-            return batch.batchId + " (" + batch.date + ", " + batch.units + " tabung)";
+          result.textContent += " Batch Jumat–Kamis: " + res.importedBatches.map(function (batch) {
+            return batch.batchId + " (" + batch.date + "–" + batch.periodEnd + ", " + batch.units + " tabung; " + batch.volumeStatus.label + ")";
           }).join(", ") + ". Data ditandai sebagai IMPOR_HISTORIS / IMPOR JSON untuk pengecekan.";
         }
-        salesImportState = null;
-        document.getElementById("sales-import-preview").style.display = "none";
-        document.getElementById("sales-import-file").value = "";
+        resetSalesImportForm();
         loadMembersData();
         loadPendingSalesImports();
         loadDashboardData();

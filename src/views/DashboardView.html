@@ -80,22 +80,22 @@
       </div>
       <span id="report-count-badge" class="kpi-badge badge-accent">0 anggota</span>
     </div>
-    <table class="data-table">
+    <table class="data-table" id="report-table">
       <thead>
         <tr>
-          <th>ID Anggota</th>
-          <th>Nama Lengkap</th>
-          <th>RT / RW</th>
-          <th id="report-col-wa" class="admin-tab" style="display:none;">No HP / WA</th>
-          <th style="text-align: center;">Beli Bulan Ini</th>
-          <th style="text-align: center;">Total Kumulatif</th>
-          <th>Terakhir Ambil Gas</th>
-          <th>Status Kuota</th>
+          <th scope="col" data-sort-key="id_anggota" aria-sort="none"><button class="report-sort-button" type="button" onclick="sortReportTable('id_anggota')">ID Anggota <span class="report-sort-indicator" aria-hidden="true">↕</span></button></th>
+          <th scope="col" data-sort-key="nama_lengkap" aria-sort="none"><button class="report-sort-button" type="button" onclick="sortReportTable('nama_lengkap')">Nama Lengkap <span class="report-sort-indicator" aria-hidden="true">↕</span></button></th>
+          <th scope="col" data-sort-key="rt_rw" aria-sort="none"><button class="report-sort-button" type="button" onclick="sortReportTable('rt_rw')">RT / RW <span class="report-sort-indicator" aria-hidden="true">↕</span></button></th>
+          <th scope="col" id="report-col-wa" class="admin-tab" data-sort-key="no_whatsapp" aria-sort="none" style="display:none;"><button class="report-sort-button" type="button" onclick="sortReportTable('no_whatsapp')">No HP / WA <span class="report-sort-indicator" aria-hidden="true">↕</span></button></th>
+          <th scope="col" data-sort-key="total_beli_bulan_ini" aria-sort="none" style="text-align: center;"><button class="report-sort-button" type="button" onclick="sortReportTable('total_beli_bulan_ini')">Beli Bulan Ini <span class="report-sort-indicator" aria-hidden="true">↕</span></button></th>
+          <th scope="col" data-sort-key="total_beli_kumulatif" aria-sort="none" style="text-align: center;"><button class="report-sort-button" type="button" onclick="sortReportTable('total_beli_kumulatif')">Total Kumulatif <span class="report-sort-indicator" aria-hidden="true">↕</span></button></th>
+          <th scope="col" data-sort-key="tgl_terakhir_beli" aria-sort="none"><button class="report-sort-button" type="button" onclick="sortReportTable('tgl_terakhir_beli')">Terakhir Ambil Gas <span class="report-sort-indicator" aria-hidden="true">↕</span></button></th>
+          <th scope="col" data-sort-key="status_kuota" aria-sort="none"><button class="report-sort-button" type="button" onclick="sortReportTable('status_kuota')">Status Kuota <span class="report-sort-indicator" aria-hidden="true">↕</span></button></th>
         </tr>
       </thead>
       <tbody id="report-table-body">
         <tr>
-          <td colspan="8" style="text-align: center; padding: 30px; color: var(--text-muted);">Memuat rekapitulasi data
+          <td colspan="7" style="text-align: center; padding: 30px; color: var(--text-muted);">Memuat rekapitulasi data
             anggota...</td>
         </tr>
       </tbody>

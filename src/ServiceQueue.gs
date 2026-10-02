@@ -239,7 +239,7 @@ function getQueueByBatch(batchId) {
   const antrianValues = sheetAntrian.getDataRange().getValues();
 
   // Mapping data anggota untuk fast lookup
-  const allMembers = getAllMembers();
+  const allMembers = getAllMembers_();
   const memberMap = new Map();
   allMembers.forEach(m => memberMap.set(m.id_anggota, m));
 
@@ -247,7 +247,7 @@ function getQueueByBatch(batchId) {
 
   for (let i = 1; i < antrianValues.length; i++) {
     const row = antrianValues[i];
-    if (row[1] === batchId) {
+    if (String(row[1] || "").trim() === String(batchId || "").trim()) {
       const idAsli = String(row[3] || "");
       const idPenerima = String(row[4] || "");
       const memberAsli = memberMap.get(idAsli) || { nama_lengkap: idAsli, rt_rw: "-", no_whatsapp: "-" };
@@ -369,7 +369,7 @@ function replaceQueueMember(queueId, newMemberId, reason, sessionToken) {
   const sheet = db.getSheetByName(CONFIG.SHEETS.ANTRIAN_DISTRIBUSI);
   const values = sheet.getDataRange().getValues();
 
-  const newMember = getMemberById(newMemberId);
+  const newMember = getMemberById_(newMemberId);
   if (!newMember) {
     throw new Error(`Anggota baru dengan ID ${newMemberId} tidak ditemukan.`);
   }

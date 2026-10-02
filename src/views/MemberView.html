@@ -45,7 +45,7 @@
     <div class="kpi-card" style="grid-column: span 2;">
       <span class="kpi-label">IMPOR PENJUALAN HISTORIS</span>
       <h3 style="margin: 8px 0; color: var(--secondary);">Impor Rekap Penjualan dari JSON</h3>
-      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">Transaksi dikelompokkan ke batch mingguan Jumat pukul 16.00 berdasarkan waktu penjualan. Data tanpa anggota tetap disimpan untuk ditindaklanjuti admin dan tidak masuk statistik anggota sampai dipetakan.</p>
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">Transaksi dikelompokkan menurut tanggal penjualan dalam periode Jumat–Kamis. Batch 20–30 tabung ditandai sesuai target; volume di luar rentang perlu ditinjau dan tidak dipindahkan ke pekan lain. Data tanpa anggota tetap disimpan untuk ditindaklanjuti admin.</p>
       <div class="form-group">
         <label class="form-label" for="sales-import-file">File JSON bulanan (contoh: 09-2026.json)</label>
         <input type="file" id="sales-import-file" class="input-text" accept=".json,application/json" style="width: 100%;">
@@ -61,9 +61,12 @@
             <span>Saya mengonfirmasi harga historis per tabung di atas.</span>
           </label>
         </div>
-        <p style="font-size: 13px; color: var(--text-muted);">Pilih anggota bila sudah diketahui. Baris yang belum dipetakan tetap disimpan sebagai pending agar dapat diperiksa setelah impor.</p>
+        <p style="font-size: 13px; color: var(--text-muted);">Mapping yang pernah dipilih akan menjadi saran default untuk nama sumber yang sama; periksa kembali sebelum impor. Baris yang dibiarkan kosong tetap disimpan sebagai pending.</p>
         <div id="sales-import-mapping" class="table-container"></div>
-        <button id="sales-import-commit-button" class="btn btn-primary" onclick="commitSalesImport()" disabled>Impor Transaksi Terpilih</button>
+        <div class="sales-import-actions">
+          <button id="sales-import-commit-button" class="btn btn-primary" onclick="commitSalesImport()" disabled>Import Data Transaksi</button>
+          <button id="sales-import-cancel-button" class="btn btn-outline" type="button" onclick="resetSalesImportForm()">Batal</button>
+        </div>
       </div>
       <div id="sales-import-result" role="status" style="margin-top: 12px;"></div>
       <section class="sales-pending-section" aria-labelledby="sales-pending-title">
@@ -77,6 +80,21 @@
         <div id="sales-pending-list" class="table-container" aria-live="polite">Memuat transaksi pending...</div>
       </section>
       <datalist id="member-autocomplete-options"></datalist>
+    </div>
+  </div>
+</div>
+
+<div id="modal-sales-import-price-warning" class="modal-backdrop" role="presentation">
+  <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="sales-import-price-warning-title" aria-describedby="sales-import-price-warning-message">
+    <div class="modal-header">
+      <h3 id="sales-import-price-warning-title" class="modal-title">Konfirmasi Harga Diperlukan</h3>
+      <button class="modal-close" type="button" aria-label="Tutup" onclick="closeSalesImportPriceWarning()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p id="sales-import-price-warning-message" style="font-size: 14px; line-height: 1.6; color: var(--text-main);">Admin perlu memeriksa harga historis per tabung, lalu mencentang konfirmasi harga sebelum mengimpor transaksi.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" type="button" onclick="closeSalesImportPriceWarning()">Kembali ke Form</button>
     </div>
   </div>
 </div>
