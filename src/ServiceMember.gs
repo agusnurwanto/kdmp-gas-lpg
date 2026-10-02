@@ -63,7 +63,10 @@ function getAllMembers(options) {
     members.push(member);
   }
 
-  return members;
+  return members.sort(function(a, b) {
+    const nameOrder = a.nama_lengkap.toLowerCase().localeCompare(b.nama_lengkap.toLowerCase(), "id");
+    return nameOrder || a.id_anggota.localeCompare(b.id_anggota);
+  });
 }
 
 /**

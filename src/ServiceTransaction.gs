@@ -14,6 +14,19 @@ function requireSalesImportSession(sessionToken) {
   }
 }
 
+function getSalesImportBatchSchedule(date) {
+  const localDate = Utilities.formatDate(date, "Asia/Jakarta", "yyyy-MM-dd");
+  const localTime = Utilities.formatDate(date, "Asia/Jakarta", "HH:mm:ss");
+  const parts = localDate.split("-").map(Number);
+  const scheduleDate = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+  const day = scheduleDate.getUTCDay();
+  let daysSinceFriday = (day - 5 + 7) % 7;
+  if (daysSinceFriday === 0 && localTime < "16:00:00") daysSinceFriday = 7;
+  scheduleDate.setUTCDate(scheduleDate.getUTCDate() - daysSinceFriday);
+  const dateText = Utilities.formatDate(scheduleDate, "Asia/Jakarta", "yyyy-MM-dd");
+  return { date: dateText, id: "BATCH-" + dateText.replace(/-/g, "") + "-01" };
+}
+
 function prepareSalesImport(jsonText, fileName) {
   if (!jsonText || String(jsonText).length > 1000000) {
     throw new Error("File JSON kosong atau terlalu besar (maksimal 1 MB).");
@@ -84,7 +97,8 @@ function prepareSalesImport(jsonText, fileName) {
       nationalityId: String(customer.nationalityId || "").trim(),
       name: name,
       quantity: quantity,
-      createdAt: createdDate
+      createdAt: createdDate,
+      batchSchedule: getSalesImportBatchSchedule(createdDate)
     };
   });
   if (quantitySum !== sold) {
@@ -161,10 +175,17 @@ function getSalesImportPreview(jsonText, fileName, sessionToken) {
   for (let i = 1; i < existingValues.length; i++) existingIds[String(existingValues[i][0] || "")] = true;
 
   const counts = { matched: 0, unmatched: 0, ambiguous: 0, duplicates: 0 };
+  const batchPlanById = Object.create(null);
   const previewCustomers = prepared.customers.map(function(item) {
     const transactionId = createSalesImportTransactionId(prepared.period, item.customer.customerReportId);
     const duplicate = !!existingIds[transactionId];
     if (duplicate) counts.duplicates++;
+    if (!duplicate) {
+      const schedule = item.customer.batchSchedule;
+      if (!batchPlanById[schedule.id]) batchPlanById[schedule.id] = { batchId: schedule.id, date: schedule.date, units: 0, customers: 0 };
+      batchPlanById[schedule.id].units += item.customer.quantity;
+      batchPlanById[schedule.id].customers++;
+    }
     if (item.matchStatus === "matched_nik" || item.matchStatus === "matched_name") counts.matched++;
     else if (item.matchStatus.indexOf("ambiguous") === 0) counts.ambiguous++;
     else counts.unmatched++;
@@ -186,6 +207,7 @@ function getSalesImportPreview(jsonText, fileName, sessionToken) {
     summary: prepared.summary,
     suggestedPrice: prepared.suggestedPrice,
     counts: counts,
+    batchPlan: Object.keys(batchPlanById).sort().map(function(batchId) { return batchPlanById[batchId]; }),
     customers: previewCustomers,
     members: prepared.members
   };
@@ -217,6 +239,9 @@ function importSalesFromJson(jsonText, fileName, unitPrice, mappingDecisions, se
     const db = getDatabase();
     const transactionSheet = db.getSheetByName(CONFIG.SHEETS.TRANSAKSI_PENJUALAN);
     const memberSheet = db.getSheetByName(CONFIG.SHEETS.ANGGOTA);
+    const batchSheet = db.getSheetByName(CONFIG.SHEETS.BATCH_PENGIRIMAN);
+    if (!batchSheet) throw new Error("Sheet BATCH_PENGIRIMAN tidak ditemukan. Jalankan setup database terlebih dahulu.");
+    if (batchSheet.getLastColumn() < 9) batchSheet.getRange(1, 9).setValue("keterangan");
     const transactionValues = transactionSheet.getDataRange().getValues();
     const existingIds = Object.create(null);
     for (let i = 1; i < transactionValues.length; i++) existingIds[String(transactionValues[i][0] || "")] = true;
@@ -236,7 +261,8 @@ function importSalesFromJson(jsonText, fileName, unitPrice, mappingDecisions, se
     const currentStats = Object.create(null);
     const rowsToAppend = [];
     const insertedByMember = Object.create(null);
-    const skippedRows = [];
+    const importedByBatch = Object.create(null);
+    const pendingRows = [];
     let importedUnits = 0;
     let duplicateCount = 0;
 
@@ -259,43 +285,78 @@ function importSalesFromJson(jsonText, fileName, unitPrice, mappingDecisions, se
             throw new Error("Mapping manual hanya dapat dipilih untuk pelanggan yang tidak cocok atau ambigu.");
           }
         } else {
+          if (!memberById[explicitMemberId]) throw new Error("Anggota pilihan untuk " + item.customer.name + " tidak ditemukan.");
           memberId = explicitMemberId;
           memberName = memberById[memberId] ? memberById[memberId].name : "";
         }
       }
-      if (!memberId || !memberById[memberId]) {
-        skippedRows.push({ name: item.customer.name, status: item.matchStatus });
-        return;
-      }
+      const isPendingMapping = !memberId || !memberById[memberId];
+      if (isPendingMapping) pendingRows.push({ name: item.customer.name, status: item.matchStatus, quantity: item.customer.quantity });
 
       const createdMonth = Utilities.formatDate(item.customer.createdAt, "Asia/Jakarta", "yyyy-MM");
       const createdAt = Utilities.formatDate(item.customer.createdAt, "Asia/Jakarta", "yyyy-MM-dd HH:mm:ss");
+      const schedule = item.customer.batchSchedule;
       rowsToAppend.push([
         transactionId,
         "",
-        "",
-        memberId,
+        schedule.id,
+        isPendingMapping ? "" : memberId,
         createdAt,
         item.customer.quantity,
         price,
         item.customer.quantity * price,
         "IMPOR_HISTORIS",
-        memberName,
-        "IMPOR JSON"
+        isPendingMapping ? item.customer.name : memberName,
+        "IMPOR JSON [" + fileName + "]" + (isPendingMapping ? " | BELUM_MAPPING" : "")
       ]);
+      if (!importedByBatch[schedule.id]) importedByBatch[schedule.id] = { date: schedule.date, units: 0 };
+      importedByBatch[schedule.id].units += item.customer.quantity;
       importedUnits += item.customer.quantity;
+      existingIds[transactionId] = true;
+      if (isPendingMapping) return;
+
       if (!insertedByMember[memberId]) insertedByMember[memberId] = { quantity: 0, currentMonthQuantity: 0, latestDate: null };
       insertedByMember[memberId].quantity += item.customer.quantity;
       if (createdMonth === nowMonth) insertedByMember[memberId].currentMonthQuantity += item.customer.quantity;
       if (!insertedByMember[memberId].latestDate || item.customer.createdAt > insertedByMember[memberId].latestDate) {
         insertedByMember[memberId].latestDate = item.customer.createdAt;
       }
-      existingIds[transactionId] = true;
     });
 
     if (rowsToAppend.length) {
       transactionSheet.getRange(transactionSheet.getLastRow() + 1, 1, rowsToAppend.length, 11).setValues(rowsToAppend);
     }
+
+    const batchValues = batchSheet.getDataRange().getValues();
+    const batchRowById = Object.create(null);
+    for (let i = 1; i < batchValues.length; i++) {
+      const batchId = String(batchValues[i][0] || "");
+      if (batchId) batchRowById[batchId] = i + 1;
+    }
+    const importedBatchIds = Object.keys(importedByBatch).sort();
+    importedBatchIds.forEach(function(batchId) {
+      const imported = importedByBatch[batchId];
+      let rowIndex = batchRowById[batchId];
+      if (!rowIndex) {
+        rowIndex = batchSheet.getLastRow() + 1;
+        batchSheet.getRange(rowIndex, 1, 1, 9).setValues([[
+          batchId, imported.date, "Jumat", "16:00 WIB", imported.units,
+          imported.units, 0, "SELESAI", "Dibuat otomatis dari impor penjualan JSON [" + fileName + "]"
+        ]]);
+        return;
+      }
+
+      const batchRow = batchValues[rowIndex - 1];
+      const newStock = Number(batchRow[4] || 0) + imported.units;
+      const newTaken = Number(batchRow[5] || 0) + imported.units;
+      const remaining = Math.max(0, newStock - newTaken);
+      const oldNote = String(batchRow[8] || "").trim();
+      const importNote = "Impor JSON [" + fileName + "]: +" + imported.units + " tabung";
+      batchSheet.getRange(rowIndex, 5, 1, 4).setValues([[
+        newStock, newTaken, remaining, remaining === 0 ? "SELESAI" : "DISTRIBUSI_BERJALAN"
+      ]]);
+      batchSheet.getRange(rowIndex, 9).setValue(oldNote ? oldNote + " | " + importNote : importNote);
+    });
 
     Object.keys(insertedByMember).forEach(function(memberId) {
       const rowIndex = memberRowById[memberId];
@@ -319,11 +380,139 @@ function importSalesFromJson(jsonText, fileName, unitPrice, mappingDecisions, se
       message: "Impor data penjualan selesai.",
       importedTransactions: rowsToAppend.length,
       importedUnits: importedUnits,
+      pendingMappingCount: pendingRows.length,
+      importedBatches: importedBatchIds.map(function(batchId) {
+        return { batchId: batchId, date: importedByBatch[batchId].date, units: importedByBatch[batchId].units };
+      }),
       totalAmount: importedTotal,
       duplicateCount: duplicateCount,
-      skippedCount: skippedRows.length,
-      skippedCustomers: skippedRows
+      skippedCount: 0,
+      skippedCustomers: [],
+      pendingCustomers: pendingRows
     };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function getPendingSalesImports(sessionToken) {
+  requireSalesImportSession(sessionToken);
+  const sheet = getDatabase().getSheetByName(CONFIG.SHEETS.TRANSAKSI_PENJUALAN);
+  const values = sheet.getDataRange().getValues();
+  const pending = [];
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    const note = String(row[10] || "");
+    if (String(row[8] || "") !== "IMPOR_HISTORIS" || note.indexOf("BELUM_MAPPING") === -1) continue;
+    pending.push({
+      id_transaksi: String(row[0] || ""),
+      id_batch: String(row[2] || ""),
+      tgl_waktu_transaksi: row[4] ? Utilities.formatDate(new Date(row[4]), "Asia/Jakarta", "yyyy-MM-dd HH:mm") : "-",
+      jumlah_tabung: Number(row[5] || 0),
+      total_bayar: Number(row[7] || 0),
+      nama_sumber: String(row[9] || ""),
+      sumber: note
+    });
+  }
+  return pending;
+}
+
+function resolvePendingSalesImport(transactionId, memberId, sessionToken) {
+  requireSalesImportSession(sessionToken);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const db = getDatabase();
+    const transactionSheet = db.getSheetByName(CONFIG.SHEETS.TRANSAKSI_PENJUALAN);
+    const memberSheet = db.getSheetByName(CONFIG.SHEETS.ANGGOTA);
+    const transactionValues = transactionSheet.getDataRange().getValues();
+    const memberValues = memberSheet.getDataRange().getValues();
+    const memberIdText = String(memberId || "").trim();
+    let transactionRowIndex = -1;
+    let transaction = null;
+    for (let i = 1; i < transactionValues.length; i++) {
+      const note = String(transactionValues[i][10] || "");
+      if (String(transactionValues[i][0] || "") === String(transactionId) && note.indexOf("BELUM_MAPPING") !== -1) {
+        transactionRowIndex = i + 1;
+        transaction = transactionValues[i];
+        break;
+      }
+    }
+    if (!transaction) throw new Error("Transaksi pending tidak ditemukan atau sudah ditindaklanjuti.");
+
+    let memberRowIndex = -1;
+    let memberName = "";
+    for (let i = 1; i < memberValues.length; i++) {
+      if (String(memberValues[i][0] || "").trim() === memberIdText) {
+        memberRowIndex = i + 1;
+        memberName = String(memberValues[i][3] || "").trim();
+        break;
+      }
+    }
+    if (memberRowIndex < 0) throw new Error("Anggota yang dipilih tidak ditemukan.");
+
+    transactionSheet.getRange(transactionRowIndex, 4).setValue(memberIdText);
+    transactionSheet.getRange(transactionRowIndex, 10).setValue(memberName);
+    transactionSheet.getRange(transactionRowIndex, 11).setValue(String(transaction[10]).replace("BELUM_MAPPING", "DIMAPPING_ADMIN"));
+
+    const member = memberValues[memberRowIndex - 1];
+    const quantity = Number(transaction[5] || 0);
+    const transactionDate = new Date(transaction[4]);
+    const currentMonth = Utilities.formatDate(new Date(), "Asia/Jakarta", "yyyy-MM");
+    const transactionMonth = Utilities.formatDate(transactionDate, "Asia/Jakarta", "yyyy-MM");
+    const oldLatest = member[9] ? new Date(member[9]) : null;
+    const latest = !oldLatest || isNaN(oldLatest.getTime()) || transactionDate > oldLatest
+      ? Utilities.formatDate(transactionDate, "Asia/Jakarta", "yyyy-MM-dd HH:mm:ss")
+      : member[9];
+    memberSheet.getRange(memberRowIndex, 8, 1, 3).setValues([[
+      Number(member[7] || 0) + quantity,
+      Number(member[8] || 0) + (transactionMonth === currentMonth ? quantity : 0),
+      latest
+    ]]);
+    return { success: true, message: "Transaksi berhasil dipetakan ke " + memberName + "." };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function deletePendingSalesImport(transactionId, sessionToken) {
+  requireSalesImportSession(sessionToken);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const db = getDatabase();
+    const transactionSheet = db.getSheetByName(CONFIG.SHEETS.TRANSAKSI_PENJUALAN);
+    const batchSheet = db.getSheetByName(CONFIG.SHEETS.BATCH_PENGIRIMAN);
+    const values = transactionSheet.getDataRange().getValues();
+    let rowIndex = -1;
+    let transaction = null;
+    for (let i = 1; i < values.length; i++) {
+      const note = String(values[i][10] || "");
+      if (String(values[i][0] || "") === String(transactionId) && note.indexOf("BELUM_MAPPING") !== -1) {
+        rowIndex = i + 1;
+        transaction = values[i];
+        break;
+      }
+    }
+    if (!transaction) throw new Error("Transaksi pending tidak ditemukan atau sudah ditindaklanjuti.");
+
+    const quantity = Number(transaction[5] || 0);
+    const batchId = String(transaction[2] || "");
+    const batches = batchSheet.getDataRange().getValues();
+    for (let i = 1; i < batches.length; i++) {
+      if (String(batches[i][0] || "") !== batchId) continue;
+      const batchRow = i + 1;
+      const stock = Math.max(0, Number(batches[i][4] || 0) - quantity);
+      const taken = Math.max(0, Number(batches[i][5] || 0) - quantity);
+      const remaining = Math.max(0, stock - taken);
+      const status = stock === 0 ? "DRAFT" : (remaining > 0 ? (taken > 0 ? "DISTRIBUSI_BERJALAN" : "DRAFT") : "SELESAI");
+      batchSheet.getRange(batchRow, 5, 1, 4).setValues([[stock, taken, remaining, status]]);
+      const oldNote = String(batches[i][8] || "").trim();
+      batchSheet.getRange(batchRow, 9).setValue((oldNote ? oldNote + " | " : "") + "Transaksi pending " + transactionId + " dihapus admin");
+      break;
+    }
+    transactionSheet.deleteRow(rowIndex);
+    return { success: true, message: "Transaksi pending dihapus dan stok batch dikoreksi." };
   } finally {
     lock.releaseLock();
   }

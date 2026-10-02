@@ -80,10 +80,10 @@
   }
 
   .brand-logo {
-    width: 48px;
-    height: 48px;
+    width: 80px;
+    height: 80px;
     object-fit: contain;
-    flex: 0 0 48px;
+    flex: 0 0 80px;
     border-radius: var(--radius-sm);
     background: white;
   }
@@ -169,11 +169,24 @@
   /* Navigation Tabs */
   .nav-tabs {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     background: #F1F5F9;
     padding: 4px;
     border-radius: var(--radius-md);
   }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .nav-menu { position: relative; }
+
+  .nav-menu-toggle { display: none; }
 
   .tab-btn {
     border: none;
@@ -452,7 +465,8 @@
     background: var(--bg-surface);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
-    overflow: hidden;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
     box-shadow: var(--shadow-sm);
   }
 
@@ -607,21 +621,183 @@
 
   /* Responsive Adjustments */
   @media (max-width: 768px) {
+    .app-container {
+      padding: 10px;
+    }
+
     .navbar {
       flex-direction: column;
-      align-items: flex-start;
-      gap: 12px;
+      align-items: stretch;
+      gap: 10px;
+      padding: 12px;
+      border-radius: var(--radius-md);
     }
-    .nav-tabs {
+
+    .brand-group {
+      min-width: 0;
+      gap: 10px;
+    }
+
+    .brand-logo {
+      width: 48px;
+      height: 48px;
+      flex-basis: 48px;
+    }
+
+    .brand-title {
+      font-size: 16px;
+    }
+
+    .brand-subtitle {
+      font-size: 11px;
+    }
+
+    .header-actions {
+      justify-content: space-between;
+      flex-wrap: nowrap;
+    }
+
+    .nav-menu {
+      flex: 0 0 auto;
+    }
+
+    .nav-menu-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      background: white;
+      color: var(--secondary);
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    .nav-menu-toggle::-webkit-details-marker {
+      display: none;
+    }
+
+    .nav-menu[open] .nav-tabs {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      width: min(280px, calc(100vw - 24px));
+      padding: 6px;
+      border: 1px solid var(--border-color);
+      background: white;
+      box-shadow: var(--shadow-md);
+    }
+
+    .nav-menu:not([open]) .nav-tabs {
+      display: none;
+    }
+
+    .tab-btn {
       width: 100%;
-      overflow-x: auto;
+      text-align: left;
     }
+
+    #auth-container {
+      min-width: 0;
+    }
+
+    #admin-badge-group {
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .toolbar, .kpi-card {
+      padding: 14px;
+    }
+
+    .toolbar-left, .toolbar-right {
+      width: 100%;
+      justify-content: flex-start;
+    }
+
+    .toolbar .input-text, .toolbar .select-control {
+      min-width: 0 !important;
+      max-width: 100%;
+      flex: 1 1 160px;
+    }
+
+    .kpi-grid {
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+      gap: 10px;
+    }
+
+    .queue-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .data-table {
+      min-width: 600px;
+    }
+
+    .modal-backdrop {
+      padding: 10px;
+      overflow-y: auto;
+    }
+
+    .modal-dialog {
+      width: 100%;
+      max-width: 500px;
+      max-height: calc(100vh - 20px);
+      overflow-y: auto;
+      margin: auto;
+    }
+
+    .modal-header, .modal-body, .modal-footer {
+      padding: 14px;
+    }
+
+    .modal-footer {
+      flex-wrap: wrap;
+    }
+
+    .toast {
+      right: 10px;
+      bottom: 10px;
+      left: 10px;
+      justify-content: center;
+      text-align: center;
+    }
+
     .toolbar {
       flex-direction: column;
       align-items: stretch;
     }
-    .toolbar-left, .toolbar-right {
-      justify-content: space-between;
+  }
+
+  @media (max-width: 420px) {
+    .brand-badge {
+      max-width: 112px;
+      padding: 6px 8px;
+      font-size: 11px;
+    }
+
+    .brand-group {
+      gap: 8px;
+    }
+
+    .brand-subtitle {
+      display: none;
+    }
+
+    #btn-login-modal {
+      padding: 6px 8px;
+      font-size: 11px;
+    }
+
+    .kpi-value {
+      font-size: 24px;
     }
   }
 </style>

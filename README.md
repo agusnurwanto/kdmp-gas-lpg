@@ -1,6 +1,6 @@
-# Rancangan Sistem Aplikasi Penjualan Gas LPG Koperasi Desa Merah Putih (KDMP) Desa Gulun
+# Sistem Distribusi Gas LPG KDMP Desa Gulun
 
-Dokumen perancangan lengkap sistem antrian bergilir berkeadilan, pencatatan transaksi, portal beranda publik, dashboard laporan transparansi, notifikasi WhatsApp, dan integrasi Agen AI (MCP Server) untuk Koperasi Desa Merah Putih (KDMP) Desa Gulun.
+Aplikasi Google Apps Script untuk mengelola anggota, jadwal pasokan LPG, antrian distribusi, transaksi penjualan, laporan, dan integrasi AI melalui MCP Server. Dokumen ini menjelaskan fitur yang tersedia pada kode di repository; beberapa batasan implementasi dicatat agar tidak disalahartikan sebagai jaminan sistem.
 
 ---
 
@@ -9,15 +9,15 @@ Dokumen perancangan lengkap sistem antrian bergilir berkeadilan, pencatatan tran
 - **Organisasi**: Koperasi Desa Merah Putih (KDMP) Desa Gulun, Kec. Maospati, Kab. Magetan
 - **Total Anggota**: ± 150 Orang
 - **Alokasi Pasokan Gas**: 100 Tabung per Bulan
-- **Jadwal Pengiriman Pangkalan**: 25 Tabung setiap hari Jumat Sore (4 Batch per bulan: 4 x 25 = 100 tabung)
-- **Tantangan Utama**: Pasokan (100 tabung) lebih sedikit dari kebutuhan anggota (150 orang), sehingga memerlukan:
-  1. Mekanisme antrian bergilir yang adil (**Fair Rotation Queue**) berbasis riwayat pembelian bulanan & kumulatif.
-  2. Tombol sekali klik untuk **Generate Antrian Otomatis** 25 anggota saat pasokan gas tiba setiap Jumat sore.
-  3. **Portal Beranda & Transparansi Publik**: Warga dapat mengecek nomor antrian, jadwal batch per-Jumat, dan rekap penerimaan gas secara terbuka tanpa harus login.
-  4. **Notifikasi WhatsApp Ganda**: Pengumuman grup massal (1-klik salin teks pengumuman) dan pengingat personal per warga via tombol `📱 WA` dengan pencatatan timestamp otomatis.
-  5. **Fleksibilitas di Lapangan**: Penanganan tukar nomor urut (*swap position*), pengalihan jatah/titip (*replace member*), dan kasir cepat 1-klik (*confirm pickup*).
-  6. **Pengaturan Dinamis & Keamanan**: Harga tabung dan kuota tersimpan di sheet `PENGATURAN`, serta perlindungan akses pengurus menggunakan autentikasi PIN Admin (`ADMIN_PIN`).
-  7. **Integrasi AI Agent (MCP Server)**: Kontrol dan monitoring pangkalan melalui Agen AI (Antigravity, Claude, Cursor) via protokol Model Context Protocol (TypeScript & Python).
+- **Contoh jadwal operasional**: 25 tabung setiap Jumat sore (empat batch per bulan); jumlah aktual dapat disesuaikan.
+- **Alur distribusi**: Kuota dan jadwal dapat disesuaikan. Nilai default yang digunakan sistem adalah 25 tabung per batch, dengan pemilihan anggota berdasarkan riwayat pembelian bulanan, tanggal pembelian terakhir, total pembelian kumulatif, dan ID anggota.
+  1. Pengurus membuat batch dan menjalankan **Generate Antrian** sesuai kuota batch.
+  2. Transaksi pengambilan memperbarui stok batch serta riwayat pembelian anggota.
+- **Beranda dan laporan**: Menampilkan ringkasan distribusi, batch, pencarian antrian, dan laporan anggota.
+- **WhatsApp**: Membuat draf pesan personal untuk dibuka di WhatsApp serta menyalin teks pengumuman grup. Aplikasi tidak mengirim pesan WhatsApp secara otomatis; pencatatan waktu adalah log tindakan dari aplikasi, bukan konfirmasi bahwa pesan terkirim.
+- **Penyesuaian lapangan**: Menukar urutan, mengganti penerima, menandai antrian batal/lewat, serta mencatat pengambilan dan pembayaran.
+- **Pengaturan**: Data koperasi, harga, kuota, logo, dan PIN admin dikelola melalui aplikasi/database.
+- **Integrasi AI Agent (MCP Server)**: MCP Server TypeScript/Node.js dan Python menyediakan tools untuk pemantauan dan operasi sistem.
 - **Basis Teknologi**:
   - **Database**: Google Spreadsheet
   - **Frontend & Backend**: Google Apps Script (GAS) Web App (HTML Service, Modern CSS, Vanilla JS SPA)
@@ -33,9 +33,9 @@ Database menggunakan satu file Google Spreadsheet dengan 5 lembar kerja (Sheets)
 Google Spreadsheet Database: [KDMP_Desa_Gulun_Gas_LPG]
  ├── ANGGOTA (Data master anggota & riwayat akumulasi)
  ├── BATCH_PENGIRIMAN (Data pengiriman 25 tabung tiap Jumat)
- ├── ANTRIAN_DISTRIBUSI (Data slot antrian 1-25 per batch, penyesuaian lapangan & log WA)
+  ├── ANTRIAN_DISTRIBUSI (Data slot antrian per batch, penyesuaian lapangan & log tindakan WA)
  ├── TRANSAKSI_PENJUALAN (Catatan penjualan riil saat gas diambil & dibayar)
- └── PENGATURAN (Konfigurasi kuota batch, harga dinamis, PIN admin & profil koperasi)
+  └── PENGATURAN (Konfigurasi kuota batch, harga, PIN admin & profil koperasi)
 ```
 
 ### Rincian Kolom Setiap Sheet:
@@ -107,30 +107,18 @@ Google Spreadsheet Database: [KDMP_Desa_Gulun_Gas_LPG]
 
 ---
 
-## 3. Logika & Algoritma Antrian Berkeadilan (Smart Fair Rotation)
+## 3. Pemilihan Antrian
 
-Koperasi memiliki 150 anggota dengan kuota 100 tabung per bulan (dibagi 4 Jumat @ 25 tabung). Dalam sebulan, ada 50 anggota yang belum dapat dan akan mendapatkan giliran utama pada awal bulan berikutnya.
+Kuota, jumlah anggota, dan frekuensi batch bergantung pada data operasional. Generator memilih anggota aktif dan memprioritaskan riwayat pembelian lebih rendah. Urutan pembanding yang digunakan adalah:
 
-### Algoritma Pemilihan 25 Anggota:
-1. **Filter Anggota Aktif**: Ambil semua baris di sheet `ANGGOTA` dengan `status_aktif == 'AKTIF'`.
-2. **Kriteria Pengurutan (Multi-tier Priority Scoring)**:
-   - **Tingkat 1**: `total_beli_bulan_ini` (**Ascending**). Anggota yang bulan ini belum pernah membeli (0 tabung) diprioritaskan sebelum yang sudah pernah dapat (1 tabung).
-   - **Tingkat 2**: `tgl_terakhir_beli` (**Ascending, nilai kosong / paling lampau didahulukan**). Anggota yang paling lama tidak membeli gas akan ditempatkan di nomor antrian teratas.
-   - **Tingkat 3**: `total_beli_kumulatif` (**Ascending**). Anggota dengan akumulasi seumur hidup lebih sedikit diprioritaskan.
-   - **Tingkat 4**: `id_anggota` (**Ascending / Deterministik**).
-3. **Slice Kuota**: Ambil 25 anggota peringkat teratas.
-4. **Generate Antrian**: Simpan ke sheet `ANTRIAN_DISTRIBUSI` dengan status `MENUNGGU`.
+1. `total_beli_bulan_ini` menaik.
+2. Tanggal pembelian terakhir yang paling lama terlebih dahulu.
+3. `total_beli_kumulatif` menaik.
+4. `id_anggota` sebagai pemutus seri deterministik.
 
-```
-Simulasi Siklus Distribusi Bulanan:
-- Jumat 1 (Minggu I)  : 25 Anggota (Batch 1: No. 1 - 25)
-- Jumat 2 (Minggu II) : 25 Anggota (Batch 2: No. 26 - 50)
-- Jumat 3 (Minggu III): 25 Anggota (Batch 3: No. 51 - 75)
-- Jumat 4 (Minggu IV) : 25 Anggota (Batch 4: No. 76 - 100)
-Total 100 anggota terlayani bulan berjalan.
--> Awal Bulan Berikutnya: 50 Anggota (No. 101 - 150) otomatis masuk antrian Batch 1 & 2 bulan berikutnya
-   karena memiliki total_beli_bulan_ini = 0 dan tanggal terakhir beli paling lampau!
-```
+Generator mengambil sejumlah anggota sesuai kuota yang diminta lalu menyimpan slot antrian dengan status `MENUNGGU`. Urutan ini membantu pemerataan berdasarkan data pembelian, tetapi bukan reservasi otomatis lintas beberapa batch yang dibuat sebelum transaksi batch sebelumnya dicatat.
+
+Contoh operasional dapat menggunakan empat batch berkuota 25 tabung per bulan. Jumlah dan jadwal tersebut merupakan konfigurasi operasional, bukan batas tetap aplikasi.
 
 ---
 
@@ -148,111 +136,160 @@ graph TD
     B -->|Berhalangan / Ingin Kasih ke Anggota B| D[Ganti Penerima / Replace Member]
     D --> D1[Ubah id_anggota_penerima menjadi Anggota B]
     D1 --> D2[Beri Catatan: Misal 'Dititipkan ke Pak Budi']
-    D2 --> D3[Saat Gas Diambil: Transaksi & Riwayat Beli Masuk ke Anggota B]
-    D3 --> D4[Anggota A Tetap Tercatat Belum Beli -> Diprioritaskan Batch Berikutnya]
+    D2 --> D3[Saat Gas Diambil: Transaksi & Riwayat pembelian dicatat untuk penerima]
 
     B -->|Tidak Hadir / Batal| E[Tandai Batal / Lewat]
-    E --> E1[Status BATAL_LEWAT -> Slot diberikan ke cadangan]
+    E --> E1[Status BATAL_LEWAT; slot tidak otomatis diisi cadangan]
 ```
 
 ### Fitur Transaksi & Kasir:
-- **Kasir 1-Klik (`confirmPickupAndPayment`)**: Menyerahkan gas, mencatat metode bayar (TUNAI, QRIS, TRANSFER), memotong stok batch, dan menambah kuota beli pembeli riil.
-- **Harga Otomatis Terhubung Database**: Nilai transaksi otomatis menggunakan konfigurasi harga dari database settings (`HARGA_PER_TABUNG`).
+- **Konfirmasi pengambilan dan pembayaran (`confirmPickupAndPayment`)**: Mencatat pembeli/pengambil, metode bayar, transaksi, serta perubahan stok dan riwayat pembelian.
+- **Harga dan kuota**: Pengurus dapat mengelola nilai konfigurasi aplikasi. Periksa nilai yang tampil sebelum mencatat transaksi.
+- Aksi batal/lewat mengubah status slot; sistem tidak otomatis mengisi slot itu dengan anggota cadangan.
 
 ---
 
 ## 5. Portal Beranda Publik, Notifikasi WhatsApp & Dashboard Transparansi
 
-Aplikasi dilengkapi dua tingkat visibilitas: **Mode Publik Terbuka** (warga) dan **Mode Pengurus Admin** (login PIN).
+Aplikasi menyediakan tampilan publik dan panel pengurus. Endpoint/API dan pemanggilan fungsi Apps Script tetap perlu ditinjau terpisah dari tampilan antarmuka.
 
-### 1. Portal Beranda & Info Publik (`PublicHomeView.html`)
-- **Akses Langsung Tanpa Login**: Warga dapat langsung membuka URL Web App untuk melihat pengumuman jadwal distribusi gas Jumat sore.
-- **Kartu Ringkasan Real-Time**: Tanggal batch aktif, sisa stok tabung, realisasi kuota bulanan, dan total warga terlayani.
-- **Filter Batch per-Jumat & Pencarian Mandiri**: Warga dapat mengetikkan nama untuk mencari nomor antriannya atau memilih riwayat batch Jumat sebelumnya via dropdown.
-- **Ketentuan & Tata Cara Pengambilan**: Panduan membawa tabung kosong, uang pas (harga dinamis), dan konfirmasi penyerahan.
+### 1. Beranda dan laporan
+- Beranda menampilkan ringkasan distribusi, daftar batch, pencarian anggota/antrian, dan riwayat batch.
+- Panel laporan menampilkan ringkasan pembelian dan status distribusi, termasuk filter dan ekspor yang tersedia bagi pengurus.
+- Manifest mengizinkan akses anonim. Pada implementasi saat ini, sebagian tampilan memanggil fungsi Apps Script langsung dan responsnya dapat mencakup data anggota/antrian sensitif. Jangan publikasikan URL kepada pengguna umum sebelum pemeriksaan dan perbaikan otorisasi serta penyaringan data di server selesai. Menyembunyikan kolom di antarmuka bukan perlindungan data.
 
-### 2. Fitur Notifikasi WhatsApp (Massal & Personal)
-- **Salin Teks WA Massal**: Menghasilkan draf pengumuman resmi lengkap dengan daftar 25 nama, nomor urut, waktu pengambilan, dan tautan publik untuk disebarkan ke grup WA Desa Gulun.
-- **Pengingat WhatsApp Personal (`sendPersonalWaReminder`)**: Tombol `📱 WA` di setiap kartu antrian yang otomatis membuka tautan WhatsApp (`wa.me/62...`) berisikan pesan personal ramah warga (nama, nomor antrian, hari, jam kedatangan, dan harga).
-- **Pelacakan Log WA (`recordWaSent`)**: Sistem mencatat tanggal dan jam pengiriman WA pada kolom ke-10 sheet `ANTRIAN_DISTRIBUSI` dan menampilkan badge waktu di kartu antrian pengurus.
+### 2. WhatsApp
+- Aplikasi membuka tautan/draf WhatsApp personal dan menyediakan teks pengumuman grup untuk disalin.
+- Aplikasi tidak mengirim pesan WhatsApp melalui API. Log waktu dicatat saat aksi pengingat dilakukan dan tidak memverifikasi status terkirim.
 
-### 3. Dashboard Laporan & Rekapitulasi (`DashboardView.html`)
-- **Tampilan Publik & Privasi**: Warga dapat memantau transparansi status penerimaan gas (siapa yang sudah dapat vs belum dapat). Kolom nomor WhatsApp dan tombol unduh CSV disembunyikan secara otomatis untuk menjaga privasi data warga.
-- **Mode Admin**: Saat pengurus login dengan PIN, kolom kontak WhatsApp dan tombol ekspor CSV laporan akan aktif dan dapat diunduh.
+### 3. Admin dan anggota
+- Login admin menggunakan PIN dan sesi; tersedia operasi pengelolaan anggota, reset kuota bulanan, impor anggota referensi, pengaturan identitas/logo, dan perubahan PIN.
+- Impor anggota membutuhkan ID spreadsheet referensi yang valid dan akses akun yang menjalankan Apps Script. Periksa hasil impor sebelum digunakan.
 
 ---
 
 ## 6. Integrasi AI Agent (Model Context Protocol / MCP Server)
 
-Sistem menyediakan **MCP Server** lengkap (tersedia dalam TypeScript/Node.js dan Python FastMCP) sehingga pengurus atau teknisi dapat mengoperasikan seluruh sistem pangkalan melalui percakapan bahasa alami pada Agen AI (Antigravity, Claude Desktop, Cursor).
+Sistem menyediakan MCP Server TypeScript/Node.js dan Python FastMCP untuk menghubungkan klien seperti Antigravity, Claude Desktop, atau Cursor ke endpoint Google Apps Script. Operasi yang memerlukan autentikasi harus dikonfigurasi dengan `GAS_API_KEY` yang cocok dengan Script Property API pada project GAS.
 
 ### Daftar 12 Tools MCP yang Disediakan:
 
 | No | Nama Tool MCP | Parameter | Fungsi |
 | :-: | :--- | :--- | :--- |
-| 1 | `get_dashboard_analytics` | - | Mengambil ringkasan KPI, total anggota terlayani, dan sisa kuota bulanan dari 100 tabung |
-| 2 | `get_current_batches` | - | Melihat daftar jadwal batch kedatangan Jumat sore beserta status stok |
+| 1 | `get_dashboard_analytics` | - | Mengambil ringkasan KPI, anggota terlayani, dan kuota |
+| 2 | `get_current_batches` | - | Melihat daftar batch beserta status stok (pastikan versi MCP dan endpoint GAS kompatibel; periksa action API bila pemanggilan gagal) |
 | 3 | `create_new_batch` | `tglJadwal`, `waktuKirim`, `jumlahStok` | Membuat jadwal batch pengiriman baru untuk hari Jumat |
-| 4 | `generate_queue_batch` | `batchId`, `quotaLimit` | Meng-generate 25 antrian otomatis berbasis algoritma prioritas berkeadilan |
-| 5 | `get_batch_queue` | `batchId` | Melihat daftar 25 nama anggota antrian, nomor urut, dan status pengambilan |
+| 4 | `generate_queue_batch` | `batchId`, `quotaLimit` | Membuat antrian sesuai kuota dengan prioritas berdasarkan riwayat pembelian |
+| 5 | `get_batch_queue` | `batchId` | Melihat daftar anggota antrian, nomor urut, dan status pengambilan |
 | 6 | `swap_queue_position` | `queueId1`, `queueId2` | Menukar posisi nomor urut antara 2 antrian di lapangan |
-| 7 | `replace_queue_member` | `queueId`, `newMemberId`, `reason` | Mengalihkan jatah antrian ke anggota pengganti dan mencatat riwayat ke pembeli aktual |
+| 7 | `replace_queue_member` | `queueId`, `newMemberId`, `reason` | Mengubah anggota penerima slot |
 | 8 | `confirm_gas_pickup` | `queueId`, `paymentMethod`, `collectorName`, `price` | Kasir 1-klik: konfirmasi fisik gas telah diambil dan dibayar |
 | 9 | `get_member_purchase_report` | `search`, `unservedOnly` | Mencari data anggota, riwayat beli kumulatif/bulanan, atau memfilter yang belum pernah dapat |
 | 10 | `register_new_member` | `nama_lengkap`, `no_ktp`, `rt_rw`, `no_whatsapp` | Mendaftarkan warga baru ke master database anggota |
-| 11 | `sync_reference_members` | - | Mengimpor 150 data anggota dari sheet `template_simkopdes` pada spreadsheet referensi secara aman |
-| 12 | `record_wa_sent` | `queueId` | Mencatat waktu pengiriman WhatsApp pengingat pada slot antrian tertentu |
+| 11 | `sync_reference_members` | - | Mengimpor anggota dari sheet referensi yang dikonfigurasi |
+| 12 | `record_wa_sent` | `queueId` | Mencatat waktu aksi pengingat WhatsApp pada slot antrian |
+
+> MCP tool dan parameter tersedia dalam implementasi TypeScript dan Python. Pastikan `GAS_WEBAPP_URL` dan `GAS_API_KEY` terisi. Diketahui tool `get_current_batches` pada klien MCP mengirim action POST `getBatches`, sementara router POST GAS saat ini belum menangani action tersebut; tool itu perlu diperbaiki atau endpoint diselaraskan sebelum dipakai. Periksa kembali action lainnya terhadap versi GAS yang sedang dipublikasikan.
 
 ---
 
-## 7. Arsitektur File Proyek
+## 7. Deploy Google Apps Script dengan clasp
 
-```
-c:\xampp\htdocs\google_apps_script\
-│
-├── RANCANGAN_SISTEM_GAS_KDMP.md  # Dokumen rancangan komprehensif sistem (file ini)
-├── appsscript.json               # Manifest konfigurasi Google Apps Script
-│
-├── docs/                         # Panduan Penggunaan & Panduan Teknis
-│   ├── PANDUAN_OPERASIONAL.md    # SOP operasional bagi pengurus koperasi & kasir
-│   └── SETUP_GOOGLE_APPS_SCRIPT.md # Panduan instalasi dan deployment Web App
-│
-├── src/                          # File Source Code Google Apps Script
-│   ├── Code.gs                   # Backend controller utama, setup database, auth PIN & router
-│   ├── ServiceMember.gs          # Layanan master data anggota, reset kuota bulanan & import
-│   ├── ServiceQueue.gs           # Smart Queue Generator, swap antrian, ganti penerima & log WA
-│   ├── ServiceTransaction.gs     # Pencatatan transaksi penjualan, kasir cepat & update stok
-│   ├── ServiceReport.gs          # Analitik KPI dashboard, breakdown RT/RW & laporan rekap
-│   ├── Api.gs                    # REST API Router (GET & POST) untuk integrasi MCP Server
-│   │
-│   └── views/                    # Komponen Tampilan Web App (HTML Service)
-│       ├── Index.html            # Kerangka utama Single Page Application (SPA) & Modal Login
-│       ├── Header.html           # Navbar aplikasi: tab publik, tab admin & status login
-│       ├── PublicHomeView.html   # Beranda publik warga, jadwal batch Jumat & filter antrian
-│       ├── QueueView.html        # Panel Antrian Admin: Generate 25, kasir, swap & WA personal
-│       ├── DashboardView.html    # Panel Laporan Rekap: KPI kuota, filter status & unduh CSV
-│       ├── MemberView.html       # Master Data Anggota: CRUD anggota, import referensi & reset
-│       ├── Style.html            # Desain CSS modern, mobile responsive, tema Merah Putih
-│       └── Script.html           # Logika interaktif frontend (SPA, AJAX Apps Script & WA)
-│
-└── mcp_server/                   # MCP Server untuk Agen AI (Antigravity, Claude, Cursor)
-    ├── package.json              # Konfigurasi Node.js & dependencies MCP SDK
-    ├── tsconfig.json             # Konfigurasi TypeScript
-    ├── server.py                 # MCP Server versi Python FastMCP
-    ├── antigravity_mcp_config.json # Konfigurasi MCP siap pakai untuk Antigravity IDE
-    ├── .env.example              # Template variabel lingkungan URL Web App
-    ├── README.md                 # Petunjuk integrasi dan daftar tools MCP
-    └── src/
-        └── index.ts              # MCP Server versi TypeScript / Node.js
+Deployment mengambil berkas GAS dari folder `src/`, sesuai `rootDir` pada `.clasp.json`.
+
+### Persiapan pertama kali
+
+1. Pasang Node.js dan npm, lalu pasang clasp:
+
+  ```powershell
+  npm install -g @google/clasp
+  ```
+
+2. Aktifkan Google Apps Script API pada pengaturan akun Google Apps Script.
+3. Dari root repository, salin `.clasp.json.example` menjadi `.clasp.json`, lalu isi `scriptId` dengan ID project Apps Script dan pertahankan `rootDir` sebagai `./src`.
+4. Login sekali dengan akun yang memiliki akses ke project:
+
+  ```powershell
+  clasp login
+  ```
+
+  File autentikasi clasp bersifat rahasia dan tidak boleh dimasukkan ke Git.
+
+### Push dan buat versi
+
+Jalankan perintah dari root repository:
+
+```powershell
+clasp status
+clasp push
+clasp version "Deskripsi perubahan"
 ```
 
----
+Catat nomor versi yang ditampilkan oleh `clasp version`, lalu lihat ID deployment yang sudah ada:
 
-## 8. Ringkasan Fitur Unggulan Sistem
+```powershell
+clasp deployments
+```
 
-1. **Smart Fair Rotation (Anti-Monopoli Kuota)**: Menjamin seluruh 150 anggota mendapatkan giliran secara merata dalam rotasi bulanan 100 tabung.
-2. **Keterbukaan Publik & Perlindungan Privasi**: Warga dapat melihat status antrian secara transparan di beranda publik tanpa login, namun data kontak pribadi (WhatsApp) tetap aman terlindungi di balik PIN Admin pengurus.
-3. **Pengingat WhatsApp Otomatis**: Integrasi pengumuman grup desa dan pesan pengingat personal satu-per-satu langsung ke kontak warga.
-4. **Fleksibilitas Pangkalan**: Memfasilitasi pertukaran nomor urut jam kedatangan dan pelimpahan jatah titip tanpa mengacaukan pembukuan kuota.
-5. **AI-Ready Architecture**: Siap diperintahkan dan dipantau 100% secara instan lewat Model Context Protocol (MCP) Server.
+### Perbarui deployment Web App yang sudah ada
+
+Pilih ID deployment Web App yang sedang digunakan, kemudian gunakan nomor versi yang baru dibuat:
+
+```powershell
+clasp deploy -i "ID_DEPLOYMENT" -V NOMOR_VERSI -d "Deskripsi rilis"
+```
+
+Contoh:
+
+```powershell
+clasp deploy -i "AKfycb..." -V 16 -d "Perbaikan laporan"
+clasp deployments
+```
+
+Pastikan keluaran deploy menyebut ID yang benar dan daftar deployment menunjukkan versi terbaru. Redeploy memakai ID deployment yang sama sehingga URL Web App tetap sama. Deployment `@HEAD` adalah deployment tanpa versi tetap; untuk rilis yang dipakai pengguna, gunakan deployment berversi yang memang menjadi URL produksi. Jangan memilih ID sebelum memastikan URL yang digunakan.
+
+Untuk deployment pertama, buat deployment Web App dari Apps Script atau gunakan `clasp deploy` tanpa `-i`, lalu catat ID/URL yang dihasilkan. Periksa pengaturan **Execute as** dan **Who has access** di Apps Script. Manifest saat ini menggunakan `USER_DEPLOYING` dan `ANYONE_ANONYMOUS`; pastikan pengaturan akses sesuai kebijakan sebelum memublikasikan. Setelah perubahan berikutnya, ulangi `clasp push`, `clasp version`, lalu redeploy ID yang sama.
+
+### Konfigurasi secret API
+
+Tambahkan Script Property `API_SECRET_KEY` di **Apps Script → Project Settings → Script Properties**. Nilainya harus cocok dengan `GAS_API_KEY` pada konfigurasi MCP. Jangan menaruh key asli di README, `.clasp.json`, atau repository.
+
+## 8. Arsitektur File Proyek
+
+```
+kdmp-gas-lpg/
+│
+├── README.md                     # Ringkasan fitur dan panduan deploy
+├── .clasp.json.example           # Contoh konfigurasi clasp (isi scriptId sendiri)
+├── src/                          # Root project Google Apps Script
+│   ├── appsscript.json           # Manifest konfigurasi Google Apps Script
+│   ├── Code.gs                   # Controller, database, autentikasi dan router
+│   ├── ServiceMember.gs          # Data anggota, import dan reset bulanan
+│   ├── ServiceQueue.gs           # Batch dan manajemen antrian
+│   ├── ServiceTransaction.gs     # Transaksi dan pembaruan stok
+│   ├── ServiceReport.gs          # Analitik dan laporan
+│   ├── Api.gs                    # Router REST GET/POST untuk MCP
+│   └── views/                    # Antarmuka HTML Service
+│       ├── Index.html
+│       ├── Header.html
+│       ├── PublicHomeView.html
+│       ├── QueueView.html
+│       ├── DashboardView.html
+│       ├── MemberView.html
+│       ├── Style.html
+│       └── Script.html
+├── docs/
+│   └── SETUP_GOOGLE_APPS_SCRIPT.md # Setup spreadsheet dan konfigurasi awal
+└── mcp_server/                   # MCP Server TypeScript dan Python
+  ├── package.json
+  ├── server.py
+  └── src/index.ts
+```
+
+## 9. Ringkasan Fitur
+
+1. Pengelolaan batch, antrian, anggota, transaksi, dan laporan berbasis Google Sheets.
+2. Pemilihan antrian berdasarkan riwayat pembelian anggota dan kuota batch.
+3. Penyesuaian urutan/penerima, konfirmasi pengambilan, dan pencatatan tindakan WhatsApp.
+4. Antarmuka Web App Google Apps Script dan integrasi melalui MCP Server.
 

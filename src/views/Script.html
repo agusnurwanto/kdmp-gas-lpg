@@ -521,6 +521,9 @@
     });
     if (activeBtn) activeBtn.classList.add("active");
 
+    var navMenu = document.querySelector(".nav-menu");
+    if (navMenu && window.matchMedia("(max-width: 768px)").matches) navMenu.open = false;
+
     if (tabId === "tab-public-home") loadPublicData();
     if (tabId === "tab-dashboard") loadDashboardData();
     if (tabId === "tab-members" && isAdmin) loadMembersData();
@@ -1240,14 +1243,144 @@
     if (!isAdmin) return;
     appScript.run
       .withSuccessHandler(function (members) {
-        allMembersCache = members || [];
+        allMembersCache = (members || []).slice().sort(function (a, b) {
+          return a.nama_lengkap.toLowerCase().localeCompare(b.nama_lengkap.toLowerCase(), "id") || a.id_anggota.localeCompare(b.id_anggota);
+        });
+        fillMemberAutocompleteDatalist(allMembersCache);
         renderMemberTable(allMembersCache);
         renderReportTable(allMembersCache);
+        loadPendingSalesImports();
       })
       .withFailureHandler(function (err) {
         showToast(err.message, true);
       })
       .getAllMembers();
+  }
+
+  function memberAutocompleteLabel(member) {
+    return member.nama_lengkap + " [" + member.id_anggota + "]";
+  }
+
+  function fillMemberAutocompleteDatalist(members) {
+    const datalist = document.getElementById("member-autocomplete-options");
+    if (!datalist) return;
+    datalist.textContent = "";
+    (members || []).slice().sort(function (a, b) {
+      return a.nama_lengkap.toLowerCase().localeCompare(b.nama_lengkap.toLowerCase(), "id") || a.id_anggota.localeCompare(b.id_anggota);
+    }).forEach(function (member) {
+      const option = document.createElement("option");
+      option.value = memberAutocompleteLabel(member);
+      datalist.appendChild(option);
+    });
+  }
+
+  function loadPendingSalesImports() {
+    if (!isAdmin || !getAdminToken()) return;
+    appScript.run
+      .withSuccessHandler(renderPendingSalesImports)
+      .withFailureHandler(function (err) {
+        const host = document.getElementById("sales-pending-list");
+        if (host) host.textContent = err.message || "Gagal memuat transaksi pending.";
+      })
+      .getPendingSalesImports(getAdminToken());
+  }
+
+  function renderPendingSalesImports(pending) {
+    const host = document.getElementById("sales-pending-list");
+    if (!host) return;
+    host.textContent = "";
+    if (!pending || !pending.length) {
+      host.textContent = "Tidak ada penjualan yang menunggu mapping.";
+      return;
+    }
+
+    fillMemberAutocompleteDatalist(allMembersCache);
+    const table = document.createElement("table");
+    table.className = "data-table";
+    const head = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    ["Tanggal", "Pelanggan sumber", "Tabung", "Batch", "Pilih anggota", "Aksi"].forEach(function (label) {
+      const th = document.createElement("th");
+      th.textContent = label;
+      headerRow.appendChild(th);
+    });
+    head.appendChild(headerRow);
+    table.appendChild(head);
+    const body = document.createElement("tbody");
+    pending.forEach(function (item) {
+      const row = document.createElement("tr");
+      [item.tgl_waktu_transaksi, item.nama_sumber, String(item.jumlah_tabung), item.id_batch].forEach(function (value) {
+        const td = document.createElement("td");
+        td.textContent = value || "-";
+        row.appendChild(td);
+      });
+      const choiceCell = document.createElement("td");
+      const input = document.createElement("input");
+      input.className = "input-text pending-member-choice";
+      input.type = "text";
+      input.setAttribute("list", "member-autocomplete-options");
+      input.dataset.transactionId = item.id_transaksi;
+      input.placeholder = "Ketik nama anggota...";
+      input.setAttribute("aria-label", "Pilih anggota untuk " + item.nama_sumber);
+      choiceCell.appendChild(input);
+      row.appendChild(choiceCell);
+
+      const actionCell = document.createElement("td");
+      const mapButton = document.createElement("button");
+      mapButton.className = "btn btn-primary btn-sm";
+      mapButton.type = "button";
+      mapButton.textContent = "Petakan";
+      mapButton.addEventListener("click", function () { mapPendingSalesImport(item.id_transaksi, input.value); });
+      const deleteButton = document.createElement("button");
+      deleteButton.className = "btn btn-outline btn-sm";
+      deleteButton.type = "button";
+      deleteButton.textContent = "Hapus";
+      deleteButton.style.marginLeft = "6px";
+      deleteButton.addEventListener("click", function () { removePendingSalesImport(item.id_transaksi, item.nama_sumber); });
+      actionCell.appendChild(mapButton);
+      actionCell.appendChild(deleteButton);
+      row.appendChild(actionCell);
+      body.appendChild(row);
+    });
+    table.appendChild(body);
+    host.appendChild(table);
+  }
+
+  function findMemberByAutocompleteLabel(label) {
+    const normalized = String(label || "").trim();
+    return allMembersCache.find(function (member) { return memberAutocompleteLabel(member) === normalized; }) || null;
+  }
+
+  function mapPendingSalesImport(transactionId, selectedLabel) {
+    const member = findMemberByAutocompleteLabel(selectedLabel);
+    if (!member) {
+      showToast("Pilih nama dari saran autocomplete agar anggota teridentifikasi dengan benar.", true);
+      return;
+    }
+    appScript.run
+      .withSuccessHandler(function (res) {
+        showToast(res.message || "Transaksi berhasil dipetakan.");
+        loadPendingSalesImports();
+        loadMembersData();
+        loadDashboardData();
+        loadPublicData();
+      })
+      .withFailureHandler(function (err) { showToast(err.message || "Mapping transaksi gagal.", true); })
+      .resolvePendingSalesImport(transactionId, member.id_anggota, getAdminToken());
+  }
+
+  function removePendingSalesImport(transactionId, customerName) {
+    if (!confirm("Hapus transaksi pending milik " + customerName + "? Stok batch terkait juga akan dikoreksi.")) return;
+    appScript.run
+      .withSuccessHandler(function (res) {
+        showToast(res.message || "Transaksi pending dihapus.");
+        loadPendingSalesImports();
+        loadBatches();
+        loadDashboardData();
+        loadPublicData();
+      })
+      .withFailureHandler(function (err) { showToast(err.message || "Penghapusan transaksi gagal.", true); })
+      .deletePendingSalesImport(transactionId, getAdminToken());
   }
 
   function renderMemberTable(members) {
@@ -1481,6 +1614,9 @@
       ["Duplikat yang akan dilewati", preview.counts.duplicates],
       ["Usulan harga per tabung", preview.suggestedPrice === null ? "Wajib diisi manual" : formatSalesImportCurrency(preview.suggestedPrice)]
     ];
+    (preview.batchPlan || []).forEach(function (batch) {
+      rows.push(["Estimasi batch " + batch.date + " (Jumat 16.00) · " + batch.customers + " pelanggan", batch.batchId + " · " + batch.units + " tabung"]);
+    });
     const body = document.createElement("tbody");
     rows.forEach(function (row) {
       const tr = document.createElement("tr");
@@ -1506,6 +1642,7 @@
   function renderSalesImportMappings(preview) {
     const host = document.getElementById("sales-import-mapping");
     host.textContent = "";
+    fillMemberAutocompleteDatalist(preview.members);
     const unresolved = preview.customers.filter(function (customer) {
       return !customer.duplicate && customer.matchStatus !== "matched_nik" && customer.matchStatus !== "matched_name";
     });
@@ -1518,7 +1655,7 @@
     table.className = "data-table";
     const thead = document.createElement("thead");
     const headingRow = document.createElement("tr");
-    ["Pelanggan sumber", "Tabung", "Status", "Pilih anggota (opsional)"].forEach(function (text) {
+    ["Pelanggan sumber", "Tabung", "Status pencocokan", "Pilih anggota bila diketahui"].forEach(function (text) {
       const th = document.createElement("th");
       th.textContent = text;
       headingRow.appendChild(th);
@@ -1532,23 +1669,17 @@
       const quantity = document.createElement("td");
       const status = document.createElement("td");
       const choiceCell = document.createElement("td");
-      const select = document.createElement("select");
-      select.className = "select-control";
-      select.dataset.customerReportId = customer.customerReportId;
-      const skipOption = document.createElement("option");
-      skipOption.value = "";
-      skipOption.textContent = "Lewati pelanggan ini";
-      select.appendChild(skipOption);
-      preview.members.forEach(function (member) {
-        const option = document.createElement("option");
-        option.value = member.id_anggota;
-        option.textContent = member.nama_lengkap + " (" + member.id_anggota + ")";
-        select.appendChild(option);
-      });
+      const input = document.createElement("input");
+      input.className = "input-text import-member-choice";
+      input.type = "text";
+      input.setAttribute("list", "member-autocomplete-options");
+      input.dataset.customerReportId = customer.customerReportId;
+      input.placeholder = "Ketik nama anggota...";
+      input.setAttribute("aria-label", "Pilih anggota untuk " + customer.name);
       name.textContent = customer.name;
       quantity.textContent = String(customer.quantity);
       status.textContent = customer.matchStatus.replace(/_/g, " ");
-      choiceCell.appendChild(select);
+      choiceCell.appendChild(input);
       row.appendChild(name);
       row.appendChild(quantity);
       row.appendChild(status);
@@ -1579,12 +1710,25 @@
       showToast("Masukkan dan konfirmasi harga historis berupa bilangan bulat positif.", true);
       return;
     }
-    if (!confirm("Impor transaksi periode " + salesImportState.preview.period + " dengan harga " + formatSalesImportCurrency(unitPrice) + " per tabung? Duplikat dan pelanggan tanpa pemetaan akan dilewati.")) return;
+    if (!confirm("Impor transaksi periode " + salesImportState.preview.period + " dengan harga " + formatSalesImportCurrency(unitPrice) + " per tabung? Batch dibuat per pekan Jumat pukul 16.00. Duplikat dilewati; pelanggan tanpa pemetaan disimpan untuk tindak lanjut admin.")) return;
 
     const decisions = {};
-    document.querySelectorAll("#sales-import-mapping select[data-customer-report-id]").forEach(function (select) {
-      if (select.value) decisions[select.dataset.customerReportId] = select.value;
+    document.querySelectorAll("#sales-import-mapping input[data-customer-report-id]").forEach(function (input) {
+      if (!input.value.trim()) return;
+      const member = (salesImportState.preview.members || []).find(function (candidate) {
+        return memberAutocompleteLabel(candidate) === input.value.trim();
+      });
+      if (!member) {
+        input.focus();
+        showToast("Pilih anggota dari saran autocomplete atau kosongkan agar disimpan untuk tindak lanjut.", true);
+        return;
+      }
+      decisions[input.dataset.customerReportId] = member.id_anggota;
     });
+    const unresolvedInput = Array.from(document.querySelectorAll("#sales-import-mapping input[data-customer-report-id]")).some(function (input) {
+      return input.value.trim() && !decisions[input.dataset.customerReportId];
+    });
+    if (unresolvedInput) return;
     const button = document.getElementById("sales-import-commit-button");
     button.disabled = true;
     showToast("Mengimpor transaksi dan memperbarui riwayat anggota...");
@@ -1596,15 +1740,20 @@
           return;
         }
         const result = document.getElementById("sales-import-result");
-        result.textContent = "Selesai: " + res.importedTransactions + " transaksi, " + res.importedUnits + " tabung, total " + formatSalesImportCurrency(res.totalAmount) + "; " + res.duplicateCount + " duplikat dilewati; " + res.skippedCount + " pelanggan tidak diimpor.";
-        if (res.skippedCustomers && res.skippedCustomers.length) {
-          result.textContent += " Perlu ditinjau: " + res.skippedCustomers.map(function (customer) { return customer.name + " (" + customer.status + ")"; }).join(", ") + ".";
+        result.textContent = "Selesai: " + res.importedTransactions + " transaksi, " + res.importedUnits + " tabung, total " + formatSalesImportCurrency(res.totalAmount) + "; " + res.duplicateCount + " duplikat dilewati; " + (res.pendingMappingCount || 0) + " transaksi menunggu mapping admin.";
+        if (res.importedBatches && res.importedBatches.length) {
+          result.textContent += " Batch Jumat: " + res.importedBatches.map(function (batch) {
+            return batch.batchId + " (" + batch.date + ", " + batch.units + " tabung)";
+          }).join(", ") + ". Data ditandai sebagai IMPOR_HISTORIS / IMPOR JSON untuk pengecekan.";
         }
         salesImportState = null;
         document.getElementById("sales-import-preview").style.display = "none";
         document.getElementById("sales-import-file").value = "";
         loadMembersData();
+        loadPendingSalesImports();
         loadDashboardData();
+        loadBatches();
+        loadPublicData();
         showToast("Impor data penjualan selesai.");
       })
       .withFailureHandler(function (err) {

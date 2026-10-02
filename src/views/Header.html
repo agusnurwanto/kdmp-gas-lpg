@@ -8,15 +8,18 @@
     </div>
   </div>
 
-  <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-    <nav class="nav-tabs" role="tablist">
-      <button class="tab-btn active" id="btn-tab-public" onclick="switchTab('tab-public-home')">🏠 Beranda &amp; Info</button>
-      <button class="tab-btn" id="btn-tab-dashboard" onclick="switchTab('tab-dashboard')">📊 Laporan Rekap</button>
-      <button class="tab-btn admin-tab" id="btn-tab-queue" onclick="switchTab('tab-queue')" style="display: none;">📋 Antrian Batch</button>
-      <button class="tab-btn admin-tab" id="btn-tab-members" onclick="switchTab('tab-members')" style="display: none;">👥 Master Anggota</button>
-      <button class="tab-btn admin-tab" id="btn-tab-sales-import" onclick="switchTab('tab-sales-import')" style="display: none;">📤 Impor Penjualan</button>
-      <button class="tab-btn admin-tab" id="btn-tab-settings" onclick="switchTab('tab-settings')" style="display: none;">⚙️ Setup &amp; PIN</button>
-    </nav>
+  <div class="header-actions">
+    <details class="nav-menu" open>
+      <summary class="nav-menu-toggle" aria-label="Buka menu navigasi"><span aria-hidden="true">☰</span> Menu</summary>
+      <nav class="nav-tabs" role="tablist" aria-label="Navigasi utama">
+        <button class="tab-btn active" id="btn-tab-public" onclick="switchTab('tab-public-home')">🏠 Beranda &amp; Info</button>
+        <button class="tab-btn" id="btn-tab-dashboard" onclick="switchTab('tab-dashboard')">📊 Laporan Rekap</button>
+        <button class="tab-btn admin-tab" id="btn-tab-queue" onclick="switchTab('tab-queue')" style="display: none;">📋 Antrian Batch</button>
+        <button class="tab-btn admin-tab" id="btn-tab-members" onclick="switchTab('tab-members')" style="display: none;">👥 Master Anggota</button>
+        <button class="tab-btn admin-tab" id="btn-tab-sales-import" onclick="switchTab('tab-sales-import')" style="display: none;">📤 Impor Penjualan</button>
+        <button class="tab-btn admin-tab" id="btn-tab-settings" onclick="switchTab('tab-settings')" style="display: none;">⚙️ Setup &amp; PIN</button>
+      </nav>
+    </details>
 
     <!-- Tombol Auth Admin -->
     <div id="auth-container">
