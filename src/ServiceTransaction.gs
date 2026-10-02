@@ -334,6 +334,70 @@ function createSalesImportTransactionId(period, customerReportId) {
   return "IMP-" + String(period).replace("-", "") + "-" + hash;
 }
 
+function createHistoricalSalesQueueId_(transactionId) {
+  return "Q-" + String(transactionId || "").trim();
+}
+
+function ensureHistoricalSalesQueue_(db, transactionSheet, transactionRowIndex, transaction, allowPendingMapping) {
+  const transactionId = String(transaction[0] || "").trim();
+  const batchId = String(transaction[2] || "").trim();
+  const memberId = String(transaction[3] || "").trim();
+  const note = String(transaction[10] || "");
+  const transactionDate = transaction[4] ? new Date(transaction[4]) : null;
+  if (String(transaction[8] || "") !== "IMPOR_HISTORIS" || !transactionId || !batchId || !memberId ||
+    (!allowPendingMapping && note.indexOf("BELUM_MAPPING") !== -1) || !transactionDate || isNaN(transactionDate.getTime())) return "";
+
+  const queueSheet = db.getSheetByName(CONFIG.SHEETS.ANTRIAN_DISTRIBUSI);
+  if (!queueSheet) throw new Error("Sheet ANTRIAN_DISTRIBUSI tidak ditemukan.");
+  const queueValues = queueSheet.getDataRange().getValues();
+  const storedQueueId = String(transaction[1] || "").trim();
+  const deterministicQueueId = createHistoricalSalesQueueId_(transactionId);
+  const queueId = storedQueueId || deterministicQueueId;
+  let queueRowIndex = -1;
+  let batchSequence = 0;
+  for (let i = 1; i < queueValues.length; i++) {
+    if (String(queueValues[i][1] || "").trim() === batchId) batchSequence++;
+    if (String(queueValues[i][0] || "").trim() === queueId) queueRowIndex = i + 1;
+  }
+
+  if (queueRowIndex < 0) {
+    queueRowIndex = queueSheet.getLastRow() + 1;
+    queueSheet.getRange(queueRowIndex, 1, 1, 10).setValues([[
+      queueId,
+      batchId,
+      batchSequence + 1,
+      memberId,
+      memberId,
+      "SUDAH_DIAMBIL",
+      "IMPOR_HISTORIS | " + transactionId,
+      transactionDate,
+      transactionDate,
+      ""
+    ]]);
+  } else {
+    const existing = queueValues[queueRowIndex - 1];
+    if (String(existing[1] || "").trim() !== batchId) {
+      throw new Error("ID antrian " + queueId + " sudah dipakai oleh batch lain.");
+    }
+    if (queueId !== deterministicQueueId && String(existing[6] || "").indexOf(transactionId) === -1) {
+      throw new Error("ID antrian " + queueId + " tidak terkait dengan transaksi " + transactionId + ".");
+    }
+    queueSheet.getRange(queueRowIndex, 2, 1, 8).setValues([[
+      batchId,
+      Number(existing[2] || batchSequence + 1),
+      memberId,
+      memberId,
+      "SUDAH_DIAMBIL",
+      "IMPOR_HISTORIS | " + transactionId,
+      transactionDate,
+      transactionDate
+    ]]);
+  }
+
+  if (storedQueueId !== queueId) transactionSheet.getRange(transactionRowIndex, 2).setValue(queueId);
+  return queueId;
+}
+
 function importSalesFromJson(jsonText, fileName, unitPrice, mappingDecisions, sessionToken) {
   requireSalesImportSession(sessionToken);
   const prepared = prepareSalesImport(jsonText, fileName);
@@ -354,7 +418,14 @@ function importSalesFromJson(jsonText, fileName, unitPrice, mappingDecisions, se
     if (batchSheet.getLastColumn() < 9) batchSheet.getRange(1, 9).setValue("keterangan");
     const transactionValues = transactionSheet.getDataRange().getValues();
     const existingIds = Object.create(null);
-    for (let i = 1; i < transactionValues.length; i++) existingIds[String(transactionValues[i][0] || "")] = true;
+    const transactionRowById = Object.create(null);
+    for (let i = 1; i < transactionValues.length; i++) {
+      const transactionId = String(transactionValues[i][0] || "");
+      if (transactionId) {
+        existingIds[transactionId] = true;
+        transactionRowById[transactionId] = i + 1;
+      }
+    }
 
     const memberValues = memberSheet.getDataRange().getValues();
     const memberById = Object.create(null);
@@ -381,6 +452,12 @@ function importSalesFromJson(jsonText, fileName, unitPrice, mappingDecisions, se
       const transactionId = createSalesImportTransactionId(prepared.period, item.customer.customerReportId);
       if (existingIds[transactionId]) {
         duplicateCount++;
+        const existingRowIndex = transactionRowById[transactionId];
+        const existingRow = existingRowIndex ? transactionValues[existingRowIndex - 1] : null;
+        if (existingRow && String(existingRow[8] || "") === "IMPOR_HISTORIS" &&
+          String(existingRow[10] || "").indexOf("BELUM_MAPPING") === -1 && String(existingRow[3] || "").trim()) {
+          ensureHistoricalSalesQueue_(db, transactionSheet, existingRowIndex, existingRow);
+        }
         return;
       }
 
@@ -413,7 +490,7 @@ function importSalesFromJson(jsonText, fileName, unitPrice, mappingDecisions, se
       const createdMonth = Utilities.formatDate(item.customer.createdAt, "Asia/Jakarta", "yyyy-MM");
       const createdAt = Utilities.formatDate(item.customer.createdAt, "Asia/Jakarta", "yyyy-MM-dd HH:mm:ss");
       const schedule = item.customer.batchSchedule;
-      rowsToAppend.push([
+      const transactionRow = [
         transactionId,
         "",
         schedule.id,
@@ -425,7 +502,8 @@ function importSalesFromJson(jsonText, fileName, unitPrice, mappingDecisions, se
         "IMPOR_HISTORIS",
         isPendingMapping ? item.customer.name : memberName,
         "IMPOR JSON [" + fileName + "]" + (isPendingMapping ? " | BELUM_MAPPING" : "")
-      ]);
+      ];
+      rowsToAppend.push(transactionRow);
       if (!importedByBatch[schedule.id]) importedByBatch[schedule.id] = {
         date: schedule.date,
         periodEnd: schedule.periodEnd,
@@ -445,7 +523,13 @@ function importSalesFromJson(jsonText, fileName, unitPrice, mappingDecisions, se
     });
 
     if (rowsToAppend.length) {
-      transactionSheet.getRange(transactionSheet.getLastRow() + 1, 1, rowsToAppend.length, 11).setValues(rowsToAppend);
+      const firstTransactionRow = transactionSheet.getLastRow() + 1;
+      transactionSheet.getRange(firstTransactionRow, 1, rowsToAppend.length, 11).setValues(rowsToAppend);
+      rowsToAppend.forEach(function (transaction, index) {
+        if (transaction[8] === "IMPOR_HISTORIS" && transaction[3]) {
+          ensureHistoricalSalesQueue_(db, transactionSheet, firstTransactionRow + index, transaction);
+        }
+      });
     }
 
     const batchValues = batchSheet.getDataRange().getValues();
@@ -585,7 +669,10 @@ function resolvePendingSalesImport(transactionId, memberId, sessionToken) {
 
     transactionSheet.getRange(transactionRowIndex, 4).setValue(memberIdText);
     transactionSheet.getRange(transactionRowIndex, 10).setValue(memberName);
-    transactionSheet.getRange(transactionRowIndex, 11).setValue(String(transaction[10]).replace("BELUM_MAPPING", "DIMAPPING_ADMIN"));
+    const resolvedQueueId = ensureHistoricalSalesQueue_(db, transactionSheet, transactionRowIndex, [
+      transaction[0], transaction[1], transaction[2], memberIdText, transaction[4], transaction[5],
+      transaction[6], transaction[7], transaction[8], memberName, transaction[10]
+    ], true);
 
     saveSalesImportMappings_(db, {
       [normalizeSalesImportName(transaction[9])]: {
@@ -604,11 +691,23 @@ function resolvePendingSalesImport(transactionId, memberId, sessionToken) {
     const latest = !oldLatest || isNaN(oldLatest.getTime()) || transactionDate > oldLatest
       ? Utilities.formatDate(transactionDate, "Asia/Jakarta", "yyyy-MM-dd HH:mm:ss")
       : member[9];
-    memberSheet.getRange(memberRowIndex, 8, 1, 3).setValues([[
-      Number(member[7] || 0) + quantity,
-      Number(member[8] || 0) + (transactionMonth === currentMonth ? quantity : 0),
-      latest
-    ]]);
+    if (String(transaction[10] || "").indexOf("MAPPING_STATISTIK_DIPROSES") === -1) {
+      memberSheet.getRange(memberRowIndex, 8, 1, 3).setValues([[
+        Number(member[7] || 0) + quantity,
+        Number(member[8] || 0) + (transactionMonth === currentMonth ? quantity : 0),
+        latest
+      ]]);
+      transactionSheet.getRange(transactionRowIndex, 11).setValue(
+        String(transaction[10] || "").replace("BELUM_MAPPING", "DIMAPPING_ADMIN") + " | MAPPING_STATISTIK_DIPROSES"
+      );
+    } else {
+      transactionSheet.getRange(transactionRowIndex, 11).setValue(
+        String(transaction[10] || "").replace("BELUM_MAPPING", "DIMAPPING_ADMIN")
+      );
+    }
+    if (!resolvedQueueId) {
+      throw new Error("Antrian historis untuk transaksi " + transactionId + " gagal dibuat.");
+    }
     return { success: true, message: "Transaksi berhasil dipetakan ke " + memberName + "." };
   } finally {
     lock.releaseLock();

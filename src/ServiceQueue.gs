@@ -233,10 +233,27 @@ function generateBatchQueue(batchId, quotaLimit, sessionToken) {
 /**
  * Mengambil data antrian untuk suatu Batch lengkap dengan nama anggota dan info waktu kirim WA
  */
-function getQueueByBatch(batchId) {
+function getQueueByBatch(batchId, sessionToken) {
   const db = getDatabase();
+  const isAdminRequest = !!sessionToken && validateSession(sessionToken);
   const sheetAntrian = db.getSheetByName(CONFIG.SHEETS.ANTRIAN_DISTRIBUSI);
   const antrianValues = sheetAntrian.getDataRange().getValues();
+  const transactionSheet = db.getSheetByName(CONFIG.SHEETS.TRANSAKSI_PENJUALAN);
+  const transactionValues = transactionSheet ? transactionSheet.getDataRange().getValues() : [];
+  const transactionByQueueId = Object.create(null);
+  const importedBatchHasMappedTransactions = Object.create(null);
+  for (let i = 1; i < transactionValues.length; i++) {
+    const transaction = transactionValues[i];
+    const queueId = String(transaction[1] || "").trim();
+    if (queueId) {
+      transactionByQueueId[queueId] = transaction;
+      const batchId = String(transaction[2] || "").trim();
+      const note = String(transaction[10] || "");
+      if (String(transaction[8] || "") === "IMPOR_HISTORIS" && note.indexOf("BELUM_MAPPING") === -1) {
+        importedBatchHasMappedTransactions[batchId] = true;
+      }
+    }
+  }
 
   // Mapping data anggota untuk fast lookup
   const allMembers = getAllMembers_();
@@ -248,30 +265,41 @@ function getQueueByBatch(batchId) {
   for (let i = 1; i < antrianValues.length; i++) {
     const row = antrianValues[i];
     if (String(row[1] || "").trim() === String(batchId || "").trim()) {
+      const idAntrian = String(row[0] || "");
+      const transaction = transactionByQueueId[idAntrian];
+      const isHistoricalImport = !!transaction && String(transaction[8] || "") === "IMPOR_HISTORIS";
+      if (!isAdminRequest && importedBatchHasMappedTransactions[String(batchId || "").trim()] && !isHistoricalImport) continue;
       const idAsli = String(row[3] || "");
       const idPenerima = String(row[4] || "");
       const memberAsli = memberMap.get(idAsli) || { nama_lengkap: idAsli, rt_rw: "-", no_whatsapp: "-" };
       const memberPenerima = memberMap.get(idPenerima) || memberAsli;
 
-      queueList.push({
-        rowIndex: i + 1,
-        id_antrian: String(row[0] || ""),
+      const queueItem = {
         id_batch: String(row[1] || ""),
         no_urut: Number(row[2] || 0),
-        id_anggota_asli: idAsli,
-        nama_anggota_asli: memberAsli.nama_lengkap,
-        rt_rw_asli: memberAsli.rt_rw,
-        id_anggota_penerima: idPenerima,
         nama_anggota_penerima: memberPenerima.nama_lengkap,
         rt_rw_penerima: memberPenerima.rt_rw,
-        no_whatsapp: memberPenerima.no_whatsapp,
-        is_replaced: idAsli !== idPenerima,
         status_antrian: String(row[5] || "MENUNGGU"),
-        keterangan_penyesuaian: String(row[6] || ""),
-        waktu_generate: row[7] ? Utilities.formatDate(new Date(row[7]), "Asia/Jakarta", "yyyy-MM-dd HH:mm") : "-",
         waktu_ambil: row[8] ? Utilities.formatDate(new Date(row[8]), "Asia/Jakarta", "yyyy-MM-dd HH:mm") : "-",
-        waktu_terakhir_wa: row[9] ? Utilities.formatDate(new Date(row[9]), "Asia/Jakarta", "dd/MM HH:mm") : "-"
-      });
+        jumlah_tabung: transaction ? Number(transaction[5] || 1) : 1,
+        is_replaced: idAsli !== idPenerima,
+        is_historical_import: !!transaction && String(transaction[8] || "") === "IMPOR_HISTORIS"
+      };
+
+      if (isAdminRequest) {
+        queueItem.rowIndex = i + 1;
+        queueItem.id_antrian = idAntrian;
+        queueItem.id_anggota_asli = idAsli;
+        queueItem.nama_anggota_asli = memberAsli.nama_lengkap;
+        queueItem.rt_rw_asli = memberAsli.rt_rw;
+        queueItem.id_anggota_penerima = idPenerima;
+        queueItem.no_whatsapp = memberPenerima.no_whatsapp;
+        queueItem.is_replaced = idAsli !== idPenerima;
+        queueItem.keterangan_penyesuaian = String(row[6] || "");
+        queueItem.waktu_generate = row[7] ? Utilities.formatDate(new Date(row[7]), "Asia/Jakarta", "yyyy-MM-dd HH:mm") : "-";
+        queueItem.waktu_terakhir_wa = row[9] ? Utilities.formatDate(new Date(row[9]), "Asia/Jakarta", "dd/MM HH:mm") : "-";
+      }
+      queueList.push(queueItem);
     }
   }
 

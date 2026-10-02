@@ -43,10 +43,12 @@ function handleApiGet(params) {
           batchId: params.batchId,
           data: rawQueue.map(function(item) {
             return {
-              id_antrian: item.id_antrian,
+              id_batch: item.id_batch,
               no_urut: item.no_urut,
               nama_anggota_penerima: item.nama_anggota_penerima,
               rt_rw_penerima: item.rt_rw_penerima,
+              jumlah_tabung: item.jumlah_tabung,
+              is_historical_import: item.is_historical_import,
               status_antrian: item.status_antrian,
               waktu_ambil: item.waktu_ambil
             };

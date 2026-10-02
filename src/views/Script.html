@@ -6,6 +6,7 @@
   let reportSort = { key: "priority", direction: 1 };
   let selectedBatchId = "";
   let publicQueueCache = [];
+  let publicQueueCacheBatchId = "";
   let publicQueueRequestId = 0;
   let isAdmin = false;
   let salesImportState = null;
@@ -645,17 +646,23 @@
     var requestBatchId = String(batchId || "").trim();
     var requestId = ++publicQueueRequestId;
     var tbody = document.getElementById("public-queue-table-body");
-    if (tbody) tbody.innerHTML = "<tr><td colspan='5' style='text-align:center;padding:20px;color:var(--text-muted);'>Memuat antrian...</td></tr>";
+    publicQueueCache = [];
+    publicQueueCacheBatchId = requestBatchId;
+    if (tbody) tbody.innerHTML = "<tr><td colspan='6' style='text-align:center;padding:20px;color:var(--text-muted);'>Memuat antrian...</td></tr>";
     appScript.run
       .withSuccessHandler(function (queueList) {
         var filterEl = document.getElementById("public-batch-filter");
         if (requestId !== publicQueueRequestId || !filterEl || String(filterEl.value || "").trim() !== requestBatchId) return;
-        publicQueueCache = queueList || [];
+        publicQueueCache = (queueList || []).filter(function (item) {
+          return String(item.id_batch || "").trim() === requestBatchId;
+        });
         renderPublicQueueTable(publicQueueCache);
       })
       .withFailureHandler(function (err) {
-        if (requestId !== publicQueueRequestId) return;
+        var filterEl = document.getElementById("public-batch-filter");
+        if (requestId !== publicQueueRequestId || !filterEl || String(filterEl.value || "").trim() !== requestBatchId) return;
         console.error("Gagal memuat antrian publik:", err);
+        if (tbody) tbody.innerHTML = "<tr><td colspan='6' style='text-align:center;padding:20px;color:var(--danger);'>Antrian batch ini gagal dimuat. Silakan segarkan halaman.</td></tr>";
         showToast(err && err.message ? err.message : "Antrian publik gagal dimuat.", true);
       })
       .getQueueByBatch(requestBatchId);
@@ -666,44 +673,56 @@
     tbody.innerHTML = "";
 
     if (!items || items.length === 0) {
-      tbody.innerHTML = "<tr><td colspan='5' style='text-align: center; padding: 25px; color: var(--text-muted);'>Belum ada antrian yang dibuat untuk batch ini.</td></tr>";
+      tbody.innerHTML = "<tr><td colspan='6' style='text-align: center; padding: 25px; color: var(--text-muted);'>Belum ada data pengambilan untuk batch ini.</td></tr>";
       return;
     }
 
     items.forEach(function (item) {
       var tr = document.createElement("tr");
       var isDone = item.status_antrian === "SUDAH_DIAMBIL";
-      var statusBadge = isDone
-        ? "<span class='kpi-badge badge-success'>&#10003; Sudah Diambil</span>"
-        : "<span class='kpi-badge badge-accent'>&#9203; Menunggu Ambil</span>";
+      var cells = [
+        { value: item.no_urut ? "#" + item.no_urut : "-", style: "text-align:center;font-weight:800;color:var(--secondary);" },
+        { value: item.nama_anggota_penerima || "-", style: "font-weight:700;" },
+        { value: item.rt_rw_penerima || "-", style: "" },
+        { value: String(item.jumlah_tabung || 1) + " tabung", style: "text-align:center;" }
+      ];
+      var badge = document.createElement("span");
+      badge.className = isDone ? "kpi-badge badge-success" : "kpi-badge badge-accent";
+      badge.textContent = isDone ? "✓ Sudah Diambil" : "Menunggu Ambil";
+      var statusCell = document.createElement("td");
+      statusCell.style.cssText = "text-align:center;";
+      statusCell.appendChild(badge);
 
-      var note = "-";
-      if (isDone && item.waktu_ambil) {
-        note = "Diambil: " + item.waktu_ambil;
-      } else if (item.is_replaced && item.keterangan_penyesuaian) {
-        note = "Pengganti: " + item.keterangan_penyesuaian;
-      }
+      var note = item.is_historical_import ? "Transaksi impor" : "-";
+      if (isDone && item.waktu_ambil && item.waktu_ambil !== "-") note += (note === "-" ? "" : " · ") + "Diambil: " + item.waktu_ambil;
+      else if (item.is_replaced) note = "Pengganti tercatat";
 
-      tr.innerHTML =
-        "<td style='text-align:center;font-weight:800;color:var(--secondary);'>#" + item.no_urut + "</td>" +
-        "<td style='font-weight:700;'>" + item.nama_anggota_penerima + "</td>" +
-        "<td>" + item.rt_rw_penerima + "</td>" +
-        "<td style='text-align:center;'>" + statusBadge + "</td>" +
-        "<td style='font-size:12px;color:var(--text-muted);'>" + note + "</td>";
+      cells.forEach(function (data) {
+        var cell = document.createElement("td");
+        cell.style.cssText = data.style;
+        cell.textContent = data.value;
+        tr.appendChild(cell);
+      });
+      tr.appendChild(statusCell);
+      var noteCell = document.createElement("td");
+      noteCell.style.cssText = "font-size:12px;color:var(--text-muted);";
+      noteCell.textContent = note;
+      tr.appendChild(noteCell);
       tbody.appendChild(tr);
     });
   }
 
   function filterPublicQueue() {
     var query = document.getElementById("public-search-input").value.toLowerCase().trim();
+    var filterEl = document.getElementById("public-batch-filter");
+    if (!filterEl || String(filterEl.value || "").trim() !== publicQueueCacheBatchId) return;
     if (!query) {
       renderPublicQueueTable(publicQueueCache);
       return;
     }
     var filtered = publicQueueCache.filter(function (item) {
-      return item.nama_anggota_penerima.toLowerCase().includes(query) ||
-        item.id_anggota_penerima.toLowerCase().includes(query) ||
-        item.rt_rw_penerima.toLowerCase().includes(query);
+      return String(item.nama_anggota_penerima || "").toLowerCase().includes(query) ||
+        String(item.rt_rw_penerima || "").toLowerCase().includes(query);
     });
     renderPublicQueueTable(filtered);
   }
@@ -789,7 +808,7 @@
         document.getElementById("queue-loading").style.display = "none";
         showToast(err.message, true);
       })
-      .getQueueByBatch(selectedBatchId);
+      .getQueueByBatch(selectedBatchId, getAdminToken());
   }
 
   function renderQueueCards(items) {

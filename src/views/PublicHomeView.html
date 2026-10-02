@@ -72,7 +72,7 @@
       <button class="btn btn-outline" onclick="loadPublicData()">🔄 Segarkan</button>
     </div>
     <div style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">
-      💡 Ganti pilihan batch di dropdown untuk melihat riwayat pengambilan gas pada Jumat sebelumnya.
+      💡 Pilih batch untuk melihat daftar antrian dan warga yang sudah mengambil gas.
     </div>
   </div>
 
@@ -87,22 +87,23 @@
           Memuat jadwal antrian...
         </p>
       </div>
-      <span class="kpi-badge badge-accent">Sistem Rotasi Adil</span>
+      <span class="kpi-badge badge-accent">Riwayat per Batch</span>
     </div>
 
     <table class="data-table">
       <thead>
         <tr>
-          <th style="width: 70px; text-align: center;">No. Urut</th>
+          <th style="width: 70px; text-align: center;">No. / Urut</th>
           <th>Nama Anggota / Warga</th>
           <th>Alamat / RT RW</th>
+          <th style="text-align: center;">Jumlah</th>
           <th style="text-align: center;">Status Pengambilan</th>
           <th>Keterangan</th>
         </tr>
       </thead>
       <tbody id="public-queue-table-body">
         <tr>
-          <td colspan="5" style="text-align: center; padding: 30px; color: var(--text-muted);">
+          <td colspan="6" style="text-align: center; padding: 30px; color: var(--text-muted);">
             Memuat daftar antrian publik...
           </td>
         </tr>
