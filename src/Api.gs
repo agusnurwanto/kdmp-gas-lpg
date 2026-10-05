@@ -134,21 +134,7 @@ function handleApiPost(data) {
     case "getAllMembers":
       // Tanpa auth: kembalikan data tanpa info sensitif (no WA, NIK disembunyikan)
       if (!isAuthorized(data)) {
-        const publicMembers = getAllMembers(data.options);
-        return {
-          success: true,
-          data: publicMembers.map(function(m) {
-            return {
-              id_anggota: m.id_anggota,
-              nama_lengkap: m.nama_lengkap,
-              rt_rw: m.rt_rw,
-              status_aktif: m.status_aktif,
-              total_beli_bulan_ini: m.total_beli_bulan_ini,
-              total_beli_kumulatif: m.total_beli_kumulatif,
-              tgl_terakhir_beli: m.tgl_terakhir_beli
-            };
-          })
-        };
+        return { success: true, data: getAllMembers(data.options) };
       }
       // Dengan auth: kembalikan data lengkap
       return { success: true, data: getAllMembers_(data.options) };
@@ -164,7 +150,7 @@ function handleApiPost(data) {
       return setupDatabase(data.spreadsheetId);
 
     case "importReferenceMembers":
-      return importMembersFromReference(data.referenceSheetId, data.sheetName || "template_simkopdes");
+      return importMembersFromReference(data.sheetName || "template_simkopdes", data.sessionToken);
 
     case "createBatch":
       return createBatch(data.tglJadwal, data.waktuKirim, data.jumlahStok);

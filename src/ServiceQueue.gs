@@ -7,6 +7,11 @@
 /**
  * Mengambil daftar seluruh batch pengiriman
  */
+function getIndonesianDayName(date) {
+  const dayIndex = Number(Utilities.formatDate(new Date(date), "Asia/Jakarta", "u")) % 7;
+  return ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"][dayIndex];
+}
+
 function getAllBatches() {
   const db = getDatabase();
   const sheet = db.getSheetByName(CONFIG.SHEETS.BATCH_PENGIRIMAN);
@@ -20,7 +25,7 @@ function getAllBatches() {
     batches.push({
       id_batch: String(row[0] || ""),
       tgl_jadwal: row[1] ? Utilities.formatDate(new Date(row[1]), "Asia/Jakarta", "yyyy-MM-dd") : "-",
-      hari: String(row[2] || "Jumat"),
+      hari: String(row[2] || (row[1] ? getIndonesianDayName(row[1]) : "-")),
       waktu_kirim: String(row[3] || "16:00 WIB"),
       jumlah_stok: Number(row[4] || 25),
       jumlah_terambil: Number(row[5] || 0),
@@ -31,6 +36,44 @@ function getAllBatches() {
 
   // Urutkan batch terbaru di atas
   return batches.reverse();
+}
+
+function getQueueMapColumns_(sheet, createIfMissing) {
+  let lastColumn = Math.max(sheet.getLastColumn(), 1);
+  let headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0].map(function (header) {
+    return String(header || "").trim().toLowerCase();
+  });
+  const columns = {
+    owner: headers.indexOf("map_atas_nama") + 1,
+    updatedAt: headers.indexOf("map_diperbarui_pada") + 1,
+    memberId: headers.indexOf("map_anggota_id") + 1,
+    memberName: headers.indexOf("map_nama_snapshot") + 1
+  };
+
+  if (createIfMissing) {
+    if (!columns.owner) {
+      columns.owner = ++lastColumn;
+      sheet.getRange(1, columns.owner).setValue("map_atas_nama")
+        .setFontWeight("bold").setBackground("#0284C7").setFontColor("#FFFFFF");
+    }
+    if (!columns.updatedAt) {
+      columns.updatedAt = ++lastColumn;
+      sheet.getRange(1, columns.updatedAt).setValue("map_diperbarui_pada")
+        .setFontWeight("bold").setBackground("#0284C7").setFontColor("#FFFFFF");
+    }
+    if (!columns.memberId) {
+      columns.memberId = ++lastColumn;
+      sheet.getRange(1, columns.memberId).setValue("map_anggota_id")
+        .setFontWeight("bold").setBackground("#0284C7").setFontColor("#FFFFFF");
+    }
+    if (!columns.memberName) {
+      columns.memberName = ++lastColumn;
+      sheet.getRange(1, columns.memberName).setValue("map_nama_snapshot")
+        .setFontWeight("bold").setBackground("#0284C7").setFontColor("#FFFFFF");
+    }
+  }
+
+  return columns;
 }
 
 /**
@@ -57,6 +100,7 @@ function createBatch(tglJadwalStr, waktuKirim, jumlahStok, sessionToken) {
 
   const dateCode = Utilities.formatDate(targetDate, "Asia/Jakarta", "yyyyMMdd");
   const tglFormatted = Utilities.formatDate(targetDate, "Asia/Jakarta", "yyyy-MM-dd");
+  const hari = getIndonesianDayName(targetDate);
   const batchId = "BATCH-" + dateCode + "-01";
 
   // Cek apakah batch dengan ID ini sudah ada
@@ -74,7 +118,7 @@ function createBatch(tglJadwalStr, waktuKirim, jumlahStok, sessionToken) {
   const rowData = [
     batchId,
     tglFormatted,
-    "Jumat",
+    hari,
     waktuKirim || "16:00 WIB",
     stok,
     0, // terambil
@@ -100,7 +144,6 @@ function generateBatchQueue(batchId, quotaLimit, sessionToken) {
     throw new Error("Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.");
   }
   const db = getDatabase();
-  const quota = Number(quotaLimit) || CONFIG.DEFAULT_QUOTA_PER_BATCH;
 
   // 1. Ambil data batch
   const sheetBatch = db.getSheetByName(CONFIG.SHEETS.BATCH_PENGIRIMAN);
@@ -119,6 +162,7 @@ function generateBatchQueue(batchId, quotaLimit, sessionToken) {
   if (!batchData) {
     throw new Error(`Batch dengan ID ${batchId} tidak ditemukan.`);
   }
+  const quota = Math.floor(Number(batchData[4]) || CONFIG.DEFAULT_QUOTA_PER_BATCH);
 
   // 2. Cek apakah antrian untuk batch ini sudah ada sebelumnya
   const sheetAntrian = db.getSheetByName(CONFIG.SHEETS.ANTRIAN_DISTRIBUSI);
@@ -163,6 +207,9 @@ function generateBatchQueue(batchId, quotaLimit, sessionToken) {
 
   if (candidateMembers.length === 0) {
     throw new Error("Tidak ada anggota aktif yang tersedia untuk dimasukkan ke antrian.");
+  }
+  if (candidateMembers.length < quota) {
+    throw new Error(`Kuota batch ${quota} tabung, tetapi hanya ada ${candidateMembers.length} anggota aktif. Antrian tidak dibuat.`);
   }
 
   // 4. ALGORITMA SORTING ADIL (FAIR PRIORITY ROUND-ROBIN):
@@ -237,6 +284,7 @@ function getQueueByBatch(batchId, sessionToken) {
   const db = getDatabase();
   const isAdminRequest = !!sessionToken && validateSession(sessionToken);
   const sheetAntrian = db.getSheetByName(CONFIG.SHEETS.ANTRIAN_DISTRIBUSI);
+  const mapColumns = getQueueMapColumns_(sheetAntrian, isAdminRequest);
   const antrianValues = sheetAntrian.getDataRange().getValues();
   const transactionSheet = db.getSheetByName(CONFIG.SHEETS.TRANSAKSI_PENJUALAN);
   const transactionValues = transactionSheet ? transactionSheet.getDataRange().getValues() : [];
@@ -293,7 +341,14 @@ function getQueueByBatch(batchId, sessionToken) {
         queueItem.nama_anggota_asli = memberAsli.nama_lengkap;
         queueItem.rt_rw_asli = memberAsli.rt_rw;
         queueItem.id_anggota_penerima = idPenerima;
+        queueItem.no_ktp_penerima = memberPenerima.no_ktp || "";
         queueItem.no_whatsapp = memberPenerima.no_whatsapp;
+        queueItem.map_atas_nama = mapColumns.owner ? String(row[mapColumns.owner - 1] || "") : "";
+        queueItem.map_anggota_id = mapColumns.memberId ? String(row[mapColumns.memberId - 1] || "") : "";
+        queueItem.map_nama_snapshot = mapColumns.memberName ? String(row[mapColumns.memberName - 1] || "") : "";
+        queueItem.map_diperbarui_pada = mapColumns.updatedAt && row[mapColumns.updatedAt - 1]
+          ? Utilities.formatDate(new Date(row[mapColumns.updatedAt - 1]), "Asia/Jakarta", "yyyy-MM-dd HH:mm")
+          : "";
         queueItem.is_replaced = idAsli !== idPenerima;
         queueItem.keterangan_penyesuaian = String(row[6] || "");
         queueItem.waktu_generate = row[7] ? Utilities.formatDate(new Date(row[7]), "Asia/Jakarta", "yyyy-MM-dd HH:mm") : "-";
@@ -307,6 +362,49 @@ function getQueueByBatch(batchId, sessionToken) {
   queueList.sort((a, b) => a.no_urut - b.no_urut);
 
   return queueList;
+}
+
+function saveQueueMapRecord(queueId, mapMemberId, sessionToken) {
+  if (!validateSession(sessionToken)) {
+    throw new Error("Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.");
+  }
+  const cleanQueueId = String(queueId || "").trim();
+  const cleanMemberId = String(mapMemberId || "").trim();
+  if (!cleanQueueId) throw new Error("ID antrian wajib diisi.");
+  if (!cleanMemberId) throw new Error("Pilih anggota koperasi untuk data MAP.");
+
+  const selectedMember = getAllMembers_().find(function (member) {
+    return String(member.id_anggota) === cleanMemberId;
+  });
+  if (!selectedMember) throw new Error("Anggota terpilih tidak ditemukan atau tidak valid.");
+
+  const sheet = getDatabase().getSheetByName(CONFIG.SHEETS.ANTRIAN_DISTRIBUSI);
+  const values = sheet.getDataRange().getValues();
+  let queueRow = -1;
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][0] || "").trim() === cleanQueueId) {
+      queueRow = i + 1;
+      break;
+    }
+  }
+  if (queueRow === -1) throw new Error(`Antrian ${cleanQueueId} tidak ditemukan.`);
+
+  const mapColumns = getQueueMapColumns_(sheet, true);
+  const updatedAt = new Date();
+  sheet.getRange(queueRow, mapColumns.owner).setValue(selectedMember.nama_lengkap);
+  sheet.getRange(queueRow, mapColumns.updatedAt).setValue(updatedAt);
+  sheet.getRange(queueRow, mapColumns.memberId).setValue(cleanMemberId);
+  sheet.getRange(queueRow, mapColumns.memberName).setValue(selectedMember.nama_lengkap);
+
+  return {
+    success: true,
+    message: "Catatan MAP berhasil disimpan di spreadsheet. Data belum dikirim melalui API MAP.",
+    queueId: cleanQueueId,
+    map_atas_nama: selectedMember.nama_lengkap,
+    map_anggota_id: cleanMemberId,
+    map_nama_snapshot: selectedMember.nama_lengkap,
+    map_diperbarui_pada: Utilities.formatDate(updatedAt, "Asia/Jakarta", "yyyy-MM-dd HH:mm")
+  };
 }
 
 /**

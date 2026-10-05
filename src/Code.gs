@@ -14,7 +14,6 @@ const CONFIG = {
   DEFAULT_QUOTA_PER_BATCH: 25,
   MONTHLY_QUOTA: 100,
   DEFAULT_PRICE: 20000,
-  REFERENCE_SHEET_ID: "isi dengan id spreadhseet yang ada nama sheet template_simkopdes",
   SHEETS: {
     ANGGOTA: "ANGGOTA",
     BATCH_PENGIRIMAN: "BATCH_PENGIRIMAN",
@@ -231,13 +230,14 @@ function setupDatabase(spreadsheetId) {
   let sheetAnggota = ss.getSheetByName(CONFIG.SHEETS.ANGGOTA);
   if (!sheetAnggota) {
     sheetAnggota = ss.insertSheet(CONFIG.SHEETS.ANGGOTA);
-    sheetAnggota.getRange(1, 1, 1, 11).setValues([[
+    sheetAnggota.getRange(1, 1, 1, 12).setValues([[
       "id_anggota", "no_ktp", "no_kk", "nama_lengkap", "rt_rw",
       "no_whatsapp", "status_aktif", "total_beli_kumulatif",
-      "total_beli_bulan_ini", "tgl_terakhir_beli", "catatan"
+      "total_beli_bulan_ini", "tgl_terakhir_beli", "catatan", "alasan_keluar"
     ]]).setFontWeight("bold").setBackground("#DC2626").setFontColor("#FFFFFF");
     sheetAnggota.setFrozenRows(1);
   }
+  ensureMemberExitReasonColumn_(sheetAnggota);
 
   // 2. Sheet BATCH_PENGIRIMAN
   let sheetBatch = ss.getSheetByName(CONFIG.SHEETS.BATCH_PENGIRIMAN);
@@ -254,10 +254,11 @@ function setupDatabase(spreadsheetId) {
   let sheetAntrian = ss.getSheetByName(CONFIG.SHEETS.ANTRIAN_DISTRIBUSI);
   if (!sheetAntrian) {
     sheetAntrian = ss.insertSheet(CONFIG.SHEETS.ANTRIAN_DISTRIBUSI);
-    sheetAntrian.getRange(1, 1, 1, 10).setValues([[
+    sheetAntrian.getRange(1, 1, 1, 14).setValues([[
       "id_antrian", "id_batch", "no_urut", "id_anggota_asli",
       "id_anggota_penerima", "status_antrian", "keterangan_penyesuaian",
-      "waktu_generate", "waktu_ambil", "waktu_terakhir_wa"
+      "waktu_generate", "waktu_ambil", "waktu_terakhir_wa",
+      "map_atas_nama", "map_diperbarui_pada", "map_anggota_id", "map_nama_snapshot"
     ]]).setFontWeight("bold").setBackground("#0284C7").setFontColor("#FFFFFF");
     sheetAntrian.setFrozenRows(1);
   } else {
@@ -287,11 +288,12 @@ function setupDatabase(spreadsheetId) {
     sheetConfig = ss.insertSheet(CONFIG.SHEETS.PENGATURAN);
     sheetConfig.getRange(1, 1, 1, 2).setValues([["Kunci", "Nilai"]])
       .setFontWeight("bold").setBackground("#64748B").setFontColor("#FFFFFF");
-    sheetConfig.getRange(2, 1, 5, 2).setValues([
+    sheetConfig.getRange(2, 1, 6, 2).setValues([
       ["NAMA_KOPERASI", "Koperasi Desa Merah Putih (KDMP) Desa Gulun"],
       ["KUOTA_PER_BATCH", "25"],
       ["HARGA_PER_TABUNG", "20000"],
       ["ATURAN_ROTASI", "FAIR_PRIORITY_ROUND_ROBIN"],
+      ["TAMPILKAN_TOTAL_KUMULATIF", "false"],
       ["ADMIN_PIN", "123456"]
     ]);
   }
@@ -342,6 +344,7 @@ function getAppSettings() {
     KUOTA_PER_BATCH: String(CONFIG.DEFAULT_QUOTA_PER_BATCH),
     HARGA_PER_TABUNG: String(CONFIG.DEFAULT_PRICE),
     ATURAN_ROTASI: "FAIR_PRIORITY_ROUND_ROBIN",
+    TAMPILKAN_TOTAL_KUMULATIF: "false",
     LOGO_FILE_ID: "",
     LOGO_MIME_TYPE: "",
     LOGO_DATA_URL: ""
@@ -460,6 +463,36 @@ function saveCooperativeSettings(name, logoDataUrl, sessionToken) {
   return { success: true, message: "Identitas koperasi berhasil disimpan.", settings: updatedSettings };
 }
 
+function saveCumulativeVisibilitySetting(showCumulative, sessionToken) {
+  if (!validateSession(sessionToken)) {
+    return { success: false, message: "Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.", code: 403 };
+  }
+  if (showCumulative !== true && showCumulative !== false && showCumulative !== "true" && showCumulative !== "false") {
+    return { success: false, message: "Pilihan tampilan total kumulatif tidak valid." };
+  }
+
+  const sheet = getDatabase().getSheetByName(CONFIG.SHEETS.PENGATURAN);
+  if (!sheet) throw new Error("Sheet PENGATURAN belum tersedia. Jalankan setupDatabase() terlebih dahulu.");
+  const values = sheet.getDataRange().getValues();
+  let settingRow = -1;
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][0]).trim().toUpperCase() === "TAMPILKAN_TOTAL_KUMULATIF") {
+      settingRow = i + 1;
+      break;
+    }
+  }
+  const settingValue = String(showCumulative) === "true" ? "true" : "false";
+  if (settingRow === -1) sheet.appendRow(["TAMPILKAN_TOTAL_KUMULATIF", settingValue]);
+  else sheet.getRange(settingRow, 2).setValue(settingValue);
+
+  CacheService.getScriptCache().remove("APP_SETTINGS_PUBLIC_V1");
+  return {
+    success: true,
+    message: "Pengaturan tampilan total kumulatif berhasil disimpan.",
+    settings: getAppSettings()
+  };
+}
+
 /**
  * Autentikasi Login Admin Pengurus. Script Properties menjadi sumber sesi
  * yang tahan terhadap CacheService eviction.
@@ -563,13 +596,16 @@ function changeAdminPin(oldPin, newPin) {
 /**
  * Mengimpor data anggota dari Spreadsheet Referensi secara AMAN (HANYA MEMBACA, TIDAK MENGUBAH ASLINYA).
  * Menargetkan lembar kerja 'template_simkopdes' sesuai struktur data SIMKOPDES Desa Gulun.
- * @param {string} sessionToken - Token sesi admin dari frontend (parameter ke-3)
+ * @param {string} sessionToken - Token sesi admin dari frontend (parameter ke-2)
  */
-function importMembersFromReference(customRefId, customSheetName, sessionToken) {
+function importMembersFromReference(customSheetName, sessionToken) {
   if (sessionToken !== undefined && !validateSession(sessionToken)) {
     return { success: false, message: "Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.", code: 403 };
   }
-  const refId = customRefId || CONFIG.REFERENCE_SHEET_ID;
+  const refId = PropertiesService.getScriptProperties().getProperty("REFERENCE_SHEET_ID");
+  if (!refId) {
+    throw new Error("Script Property REFERENCE_SHEET_ID belum diatur. Tambahkan ID spreadsheet referensi di Project Settings.");
+  }
   const sheetName = customSheetName || "template_simkopdes";
   const refSs = SpreadsheetApp.openById(refId);
   
@@ -594,6 +630,7 @@ function importMembersFromReference(customRefId, customSheetName, sessionToken) 
   let alamatIdx = headerRow.findIndex(h => h.includes("alamat"));
   let pekerjaanIdx = headerRow.findIndex(h => h.includes("pekerjaan"));
   let jkIdx = headerRow.findIndex(h => h.includes("jenis kelamin") || h.includes("kelamin"));
+  const exitReasonIdx = headerRow.findIndex(h => h.replace(/\s+/g, " ").includes("alasan keluar"));
 
   // Default fallback index untuk template_simkopdes jika header berbeda format
   if (nikIdx === -1) nikIdx = 0;
@@ -605,6 +642,7 @@ function importMembersFromReference(customRefId, customSheetName, sessionToken) 
 
   const db = getDatabase();
   const targetSheet = db.getSheetByName(CONFIG.SHEETS.ANGGOTA);
+  const exitReasonColumn = ensureMemberExitReasonColumn_(targetSheet);
   
   // 3. Baca baris data anggota yang sudah ada untuk mencegah duplikasi data
   const existingValues = targetSheet.getDataRange().getValues();
@@ -612,11 +650,12 @@ function importMembersFromReference(customRefId, customSheetName, sessionToken) 
   for (let i = 1; i < existingValues.length; i++) {
     const nik = String(existingValues[i][1]).trim();
     const nama = String(existingValues[i][3]).trim().toUpperCase();
-    if (nik && nik !== "-") existingMap.set(nik, true);
-    if (nama) existingMap.set(nama, true);
+    if (nik && nik !== "-") existingMap.set(nik, i + 1);
+    if (nama) existingMap.set(nama, i + 1);
   }
 
   const rowsToAdd = [];
+  let totalUpdated = 0;
   let currentCount = existingValues.length - 1;
 
   // 4. Proses baris data (lewati baris header ke-0)
@@ -630,6 +669,7 @@ function importMembersFromReference(customRefId, customSheetName, sessionToken) 
     const rawAlamat = String(row[alamatIdx] || "").trim();
     const rawPekerjaan = String(row[pekerjaanIdx] || "").trim();
     const rawJk = String(row[jkIdx] || "").trim();
+    const alasanKeluar = exitReasonIdx === -1 ? "" : String(row[exitReasonIdx] || "").trim();
 
     // Format nomor WhatsApp (tambahkan awalan jika perlu)
     if (rawPhone && rawPhone.startsWith("62")) {
@@ -637,8 +677,17 @@ function importMembersFromReference(customRefId, customSheetName, sessionToken) 
     }
 
     // Cek duplikasi berdasarkan NIK atau Nama Lengkap
-    if (rawNik && rawNik !== "-" && existingMap.has(rawNik)) continue;
-    if (existingMap.has(rawNama.toUpperCase())) continue;
+    const existingRow = rawNik && rawNik !== "-" && existingMap.has(rawNik)
+      ? existingMap.get(rawNik)
+      : existingMap.get(rawNama.toUpperCase());
+    if (existingRow) {
+      if (alasanKeluar) {
+        targetSheet.getRange(existingRow, 7).setValue("NONAKTIF");
+        targetSheet.getRange(existingRow, exitReasonColumn).setValue(alasanKeluar);
+        totalUpdated++;
+      }
+      continue;
+    }
 
     currentCount++;
     const memberId = "MBR-" + ("000" + currentCount).slice(-3);
@@ -649,33 +698,38 @@ function importMembersFromReference(customRefId, customSheetName, sessionToken) 
     if (rawJk) catatanArr.push(`JK: ${rawJk}`);
     catatanArr.push(`Sumber: ${refSheet.getName()}`);
 
-    rowsToAdd.push([
+    const memberRow = [
       memberId,
       rawNik || "-",
       "-", // No KK
       rawNama,
       rawAlamat || "-",
       rawPhone || "-",
-      "AKTIF",
+      alasanKeluar ? "NONAKTIF" : "AKTIF",
       0, // total_beli_kumulatif
       0, // total_beli_bulan_ini
       "", // tgl_terakhir_beli
-      catatanArr.join(" | ")
-    ]);
+      catatanArr.join(" | "),
+      alasanKeluar
+    ];
+    while (memberRow.length < exitReasonColumn) memberRow.push("");
+    memberRow[exitReasonColumn - 1] = alasanKeluar;
+    rowsToAdd.push(memberRow);
 
-    if (rawNik && rawNik !== "-") existingMap.set(rawNik, true);
-    existingMap.set(rawNama.toUpperCase(), true);
+    if (rawNik && rawNik !== "-") existingMap.set(rawNik, currentCount + 1);
+    existingMap.set(rawNama.toUpperCase(), currentCount + 1);
   }
 
   if (rowsToAdd.length > 0) {
-    targetSheet.getRange(targetSheet.getLastRow() + 1, 1, rowsToAdd.length, 11).setValues(rowsToAdd);
+    targetSheet.getRange(targetSheet.getLastRow() + 1, 1, rowsToAdd.length, exitReasonColumn).setValues(rowsToAdd);
   }
 
   return {
     success: true,
-    message: `Berhasil mengimpor ${rowsToAdd.length} anggota dari sheet '${refSheet.getName()}' Desa Gulun.`,
+    message: `Berhasil mengimpor ${rowsToAdd.length} anggota dan memperbarui ${totalUpdated} anggota nonaktif dari sheet '${refSheet.getName()}' Desa Gulun.`,
     sheetSource: refSheet.getName(),
     totalImported: rowsToAdd.length,
+    totalUpdated: totalUpdated,
     totalMembersNow: targetSheet.getLastRow() - 1
   };
 }

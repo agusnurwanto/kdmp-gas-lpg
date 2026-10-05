@@ -7,11 +7,29 @@
 /**
  * Mengambil seluruh data anggota dengan opsi filter dan pencarian
  */
+function getMemberExitReasonColumn_(sheet) {
+  const lastColumn = Math.max(sheet.getLastColumn(), 11);
+  const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+  const index = headers.findIndex(function (header) {
+    return String(header || "").trim().toLowerCase() === "alasan_keluar";
+  });
+  return index === -1 ? 0 : index + 1;
+}
+
+function ensureMemberExitReasonColumn_(sheet) {
+  const existingColumn = getMemberExitReasonColumn_(sheet);
+  if (existingColumn) return existingColumn;
+  const column = Math.max(sheet.getLastColumn(), 11) + 1;
+  sheet.getRange(1, column).setValue("alasan_keluar");
+  return column;
+}
+
 function getAllMembers_(options) {
   options = options || {};
   const db = getDatabase();
   const sheet = db.getSheetByName(CONFIG.SHEETS.ANGGOTA);
   const values = sheet.getDataRange().getValues();
+  const exitReasonColumn = getMemberExitReasonColumn_(sheet);
 
   if (values.length <= 1) {
     return [];
@@ -47,7 +65,8 @@ function getAllMembers_(options) {
       total_beli_kumulatif: Number(row[7] || 0),
       total_beli_bulan_ini: Number(row[8] || 0),
       tgl_terakhir_beli: row[9] ? Utilities.formatDate(new Date(row[9]), "Asia/Jakarta", "yyyy-MM-dd HH:mm") : "-",
-      catatan: String(row[10] || "")
+      catatan: String(row[10] || ""),
+      alasan_keluar: exitReasonColumn ? String(row[exitReasonColumn - 1] || "") : ""
     };
 
     if (!member.nama_lengkap) continue;
@@ -80,16 +99,18 @@ function getAllMembers_(options) {
 }
 
 function getAllMembers(options) {
+  const showCumulative = String(getAppSettings().TAMPILKAN_TOTAL_KUMULATIF).toLowerCase() === "true";
   return getAllMembers_(options).map(function (member) {
-    return {
+    const publicMember = {
       id_anggota: member.id_anggota,
       nama_lengkap: member.nama_lengkap,
       rt_rw: member.rt_rw,
       status_aktif: member.status_aktif,
       total_beli_bulan_ini: member.total_beli_bulan_ini,
-      total_beli_kumulatif: member.total_beli_kumulatif,
       tgl_terakhir_beli: member.tgl_terakhir_beli
     };
+    if (showCumulative) publicMember.total_beli_kumulatif = member.total_beli_kumulatif;
+    return publicMember;
   });
 }
 
@@ -131,6 +152,7 @@ function addMember(data) {
   const db = getDatabase();
   const sheet = db.getSheetByName(CONFIG.SHEETS.ANGGOTA);
   const lastRow = sheet.getLastRow();
+  const exitReasonColumn = ensureMemberExitReasonColumn_(sheet);
   
   const newId = "MBR-" + ("000" + lastRow).slice(-3);
   const rowData = [
@@ -144,10 +166,13 @@ function addMember(data) {
     0, // total_beli_kumulatif
     0, // total_beli_bulan_ini
     "", // tgl_terakhir_beli
-    data.catatan || "Ditambahkan manual"
+    data.catatan || "Ditambahkan manual",
+    data.alasan_keluar || ""
   ];
+  while (rowData.length < exitReasonColumn) rowData.push("");
+  rowData[exitReasonColumn - 1] = data.alasan_keluar || "";
 
-  sheet.appendRow(rowData);
+  sheet.getRange(lastRow + 1, 1, 1, exitReasonColumn).setValues([rowData]);
 
   return {
     success: true,
@@ -177,6 +202,10 @@ function updateMember(memberId, data) {
       if (data.no_whatsapp !== undefined) sheet.getRange(rowIndex, 6).setValue(data.no_whatsapp);
       if (data.status_aktif !== undefined) sheet.getRange(rowIndex, 7).setValue(data.status_aktif);
       if (data.catatan !== undefined) sheet.getRange(rowIndex, 11).setValue(data.catatan);
+      if (data.alasan_keluar !== undefined) {
+        const exitReasonColumn = ensureMemberExitReasonColumn_(sheet);
+        sheet.getRange(rowIndex, exitReasonColumn).setValue(data.alasan_keluar);
+      }
 
       return {
         success: true,

@@ -54,6 +54,7 @@ Google Spreadsheet Database: [KDMP_Desa_Gulun_Gas_LPG]
 | `total_beli_bulan_ini`| Integer | Total tabung yang dibeli pada bulan berjalan |
 | `tgl_terakhir_beli` | Datetime | Waktu terakhir kali anggota mengambil gas |
 | `catatan` | String | Keterangan tambahan (pekerjaan, JK, sumber data referensi) |
+| `alasan_keluar` | String | Alasan keluar anggota; anggota beralasan keluar dari impor ditandai `NONAKTIF` |
 
 #### 2. Sheet `BATCH_PENGIRIMAN`
 | Kolom | Tipe Data | Deskripsi |
@@ -80,6 +81,10 @@ Google Spreadsheet Database: [KDMP_Desa_Gulun_Gas_LPG]
 | `waktu_generate` | Datetime | Waktu antrian dibuat |
 | `waktu_ambil` | Datetime | Waktu aktual pengambilan fisik tabung |
 | `waktu_terakhir_wa` | Datetime | Waktu pengiriman pesan pengingat WhatsApp personal |
+| `map_atas_nama` | String | Nama yang digunakan pada catatan MAP untuk slot antrian |
+| `map_diperbarui_pada` | Datetime | Waktu terakhir catatan MAP diubah |
+| `map_anggota_id` | String | ID anggota koperasi yang dipilih sebagai nama pada MAP |
+| `map_nama_snapshot` | String | Snapshot nama anggota yang dipilih saat catatan MAP disimpan |
 
 #### 4. Sheet `TRANSAKSI_PENJUALAN`
 | Kolom | Tipe Data | Deskripsi |
@@ -103,6 +108,7 @@ Google Spreadsheet Database: [KDMP_Desa_Gulun_Gas_LPG]
 | `KUOTA_PER_BATCH` | `25` | Kuota tabung per pengiriman Jumat |
 | `HARGA_PER_TABUNG`| `20000` | Harga resmi per tabung gas 3kg |
 | `ATURAN_ROTASI` | `FAIR_PRIORITY_ROUND_ROBIN` | Algoritma rotasi antrian |
+| `TAMPILKAN_TOTAL_KUMULATIF` | `false` | Admin dapat memilih apakah total pembelian kumulatif tampil pada laporan publik |
 | `ADMIN_PIN` | `123456` | PIN keamanan akses panel pengurus |
 
 ---
@@ -146,6 +152,7 @@ graph TD
 - **Konfirmasi pengambilan dan pembayaran (`confirmPickupAndPayment`)**: Mencatat pembeli/pengambil, metode bayar, transaksi, serta perubahan stok dan riwayat pembelian.
 - **Harga dan kuota**: Pengurus dapat mengelola nilai konfigurasi aplikasi. Periksa nilai yang tampil sebelum mencatat transaksi.
 - Aksi batal/lewat mengubah status slot; sistem tidak otomatis mengisi slot itu dengan anggota cadangan.
+- Catatan “Kirim ke MAP” memungkinkan admin memilih anggota koperasi berdasarkan nama/NIK, lalu menyimpan ID anggota terpilih dan snapshot namanya sebagai metadata slot antrian di spreadsheet. NIK tetap berasal dari anggota penerima dan hanya ditampilkan pada UI admin. Belum ada pengiriman melalui API MAP eksternal.
 
 ---
 
@@ -156,6 +163,7 @@ Aplikasi menyediakan tampilan publik dan panel pengurus. Endpoint/API dan pemang
 ### 1. Beranda dan laporan
 - Beranda menampilkan ringkasan distribusi, daftar batch, pencarian anggota/antrian, dan riwayat batch.
 - Panel laporan menampilkan ringkasan pembelian dan status distribusi, termasuk filter dan ekspor yang tersedia bagi pengurus.
+- Kolom **Total Kumulatif** pada laporan publik disembunyikan secara default. Admin dapat memilih tampil/sembunyi melalui **Setup & PIN → Tampilan Total Kumulatif**; saat disembunyikan, angka tersebut tidak dikirim oleh fungsi data anggota publik.
 - Manifest mengizinkan akses anonim. Pada implementasi saat ini, sebagian tampilan memanggil fungsi Apps Script langsung dan responsnya dapat mencakup data anggota/antrian sensitif. Jangan publikasikan URL kepada pengguna umum sebelum pemeriksaan dan perbaikan otorisasi serta penyaringan data di server selesai. Menyembunyikan kolom di antarmuka bukan perlindungan data.
 
 ### 2. WhatsApp
@@ -164,7 +172,7 @@ Aplikasi menyediakan tampilan publik dan panel pengurus. Endpoint/API dan pemang
 
 ### 3. Admin dan anggota
 - Login admin menggunakan PIN dan sesi; tersedia operasi pengelolaan anggota, reset kuota bulanan, impor anggota referensi, pengaturan identitas/logo, dan perubahan PIN.
-- Impor anggota membutuhkan ID spreadsheet referensi yang valid dan akses akun yang menjalankan Apps Script. Periksa hasil impor sebelum digunakan.
+- Impor anggota membaca ID spreadsheet dari Script Property `REFERENCE_SHEET_ID` dan membutuhkan akses akun yang menjalankan Apps Script. Kolom `Alasan Keluar` pada sumber menandai anggota `NONAKTIF`; alasannya bisa dilihat pada tooltip status dan diedit dari modal anggota.
 
 ---
 

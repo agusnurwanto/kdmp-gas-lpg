@@ -52,9 +52,10 @@ Di editor Google Apps Script, buat berkas-berkas berikut sesuai struktur proyek:
 
 ## Langkah 4: Impor Data Anggota dari Spreadsheet Referensi
 
-1. Pada dropdown fungsi di Apps Script Editor, pilih fungsi **`importMembersFromReference`**.
-2. Klik tombol **Run / Jalankan** (▶).
-3. Fungsi ini akan **hanya membaca** data dari sheet **`template_simkopdes`** pada file referensi tanpa mengubah aslinya, lalu memetakan kolom NIK, Nama, No HP/WA, dan Alamat RT/RW warga Desa Gulun secara otomatis ke sheet `ANGGOTA` baru Anda.
+1. Buka **Project Settings → Script Properties**, lalu tambahkan properti `REFERENCE_SHEET_ID` dengan nilai ID spreadsheet referensi yang memuat sheet `template_simkopdes`.
+2. Pada dropdown fungsi di Apps Script Editor, pilih fungsi **`importMembersFromReference`**.
+3. Klik tombol **Run / Jalankan** (▶).
+4. Fungsi ini hanya membaca data sumber, memetakan kolom NIK, Nama, No HP/WA, Alamat RT/RW, dan `Alasan Keluar`. Anggota dengan alasan keluar akan berstatus `NONAKTIF`; alasannya disimpan pada kolom `alasan_keluar` di sheet `ANGGOTA`.
 
 ---
 
@@ -69,6 +70,8 @@ Untuk mengamankan endpoint API dari manipulasi publik / pihak yang tidak berhak 
    - **Property**: `API_SECRET_KEY`
    - **Value**: Masukkan kode rahasia unik/acak yang panjang (contoh: `kdmp_gas_gulun_secret_key_2026_x89a!`)
 4. Klik **Save script properties (Simpan properti skrip)**.
+
+`REFERENCE_SHEET_ID` juga disimpan sebagai Script Property. Atur nilainya pada Langkah 4; ID spreadsheet referensi tidak disimpan di kode sumber.
 
 ---
 

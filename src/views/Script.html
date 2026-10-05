@@ -3,6 +3,10 @@
   let currentBatches = [];
   let currentQueue = [];
   let allMembersCache = [];
+  let selectedMapMemberId = "";
+  let mapMemberOptions = [];
+  let mapMemberActiveIndex = -1;
+  let memberSort = { key: "nama_lengkap", direction: 1 };
   let reportSort = { key: "priority", direction: 1 };
   let selectedBatchId = "";
   let publicQueueCache = [];
@@ -226,6 +230,15 @@
     if (pickupPrice) pickupPrice.value = appSettings.HARGA_PER_TABUNG || "20000";
 
     const cooperativeName = appSettings.NAMA_KOPERASI || "Koperasi Desa Merah Putih (KDMP) Desa Gulun";
+    const publicCumulativeVisibility = String(appSettings.TAMPILKAN_TOTAL_KUMULATIF).toLowerCase() === "true";
+    const cumulativeVisibility = isAdmin || publicCumulativeVisibility;
+    const cumulativeVisibilityInput = document.getElementById("setting-cumulative-visibility");
+    const cumulativeColumn = document.getElementById("report-col-cumulative");
+    if (cumulativeVisibilityInput) cumulativeVisibilityInput.value = publicCumulativeVisibility ? "true" : "false";
+    if (cumulativeColumn) cumulativeColumn.style.display = cumulativeVisibility ? "" : "none";
+    if (typeof renderReportTable === "function" && Array.isArray(allMembersCache) && allMembersCache.length) {
+      renderReportTable(allMembersCache);
+    }
     const nameInput = document.getElementById("setting-org-name");
     if (nameInput) nameInput.value = cooperativeName;
     const brandSubtitle = document.getElementById("brand-subtitle");
@@ -349,6 +362,38 @@
       showToast("File logo tidak dapat dibaca oleh browser.", true);
     };
     reader.readAsDataURL(file);
+  }
+
+  function saveCumulativeVisibilitySetting() {
+    if (!isAdmin || !getAdminToken()) {
+      showToast("Login admin diperlukan untuk mengubah tampilan laporan.", true);
+      return;
+    }
+    const button = document.getElementById("save-cumulative-visibility-button");
+    const input = document.getElementById("setting-cumulative-visibility");
+    button.disabled = true;
+    appScript.run
+      .withSuccessHandler(function (result) {
+        button.disabled = false;
+        if (!result || !result.success) {
+          if (result && result.code === 403) {
+            clearExpiredAdminSession("Sesi admin berakhir. Silakan login kembali untuk mengubah tampilan laporan.");
+            return;
+          }
+          showToast(result && result.message ? result.message : "Pengaturan tampilan laporan gagal disimpan.", true);
+          return;
+        }
+        appSettings = result.settings;
+        cacheAppSettings(appSettings);
+        applySettingsToUI();
+        loadDashboardData();
+        showToast(result.message || "Pengaturan tampilan laporan berhasil disimpan.");
+      })
+      .withFailureHandler(function (error) {
+        button.disabled = false;
+        showToast(error && error.message ? error.message : "Pengaturan tampilan laporan gagal disimpan.", true);
+      })
+      .saveCumulativeVisibilitySetting(input.value, getAdminToken());
   }
 
   // ==========================================
@@ -731,8 +776,9 @@
   // MANAJEMEN BATCH & ANTRIAN (ADMIN ONLY)
   // ==========================================
 
-  function loadBatches() {
+  function loadBatches(preserveSelection) {
     if (!isAdmin) return;
+    const previousBatchId = preserveSelection ? selectedBatchId : "";
     appScript.run
       .withSuccessHandler(function (batches) {
         currentBatches = batches || [];
@@ -743,6 +789,7 @@
           select.innerHTML = "<option value=''>Belum ada batch. Buat batch baru!</option>";
           document.getElementById("queue-empty").style.display = "block";
           document.getElementById("queue-loading").style.display = "none";
+          setQueueRefreshLoading(false);
           return;
         }
 
@@ -750,7 +797,7 @@
           const opt = document.createElement("option");
           opt.value = b.id_batch;
           opt.textContent = `${b.id_batch} - ${b.tgl_jadwal} (${b.hari}, ${b.waktu_kirim}) [Stok: ${b.sisa_stok}/${b.jumlah_stok}]`;
-          if (index === 0) opt.selected = true;
+          if (b.id_batch === previousBatchId || (!previousBatchId && index === 0)) opt.selected = true;
           select.appendChild(opt);
         });
 
@@ -759,9 +806,22 @@
         loadQueueData();
       })
       .withFailureHandler(function (err) {
+        setQueueRefreshLoading(false);
         showToast(err.message, true);
       })
       .getAllBatches();
+  }
+
+  function refreshQueuePage() {
+    setQueueRefreshLoading(true);
+    loadBatches(true);
+  }
+
+  function setQueueRefreshLoading(loading) {
+    const button = document.getElementById("refresh-queue-button");
+    if (!button) return;
+    button.disabled = loading;
+    button.textContent = loading ? "⏳ Memuat..." : "🔄 Segarkan";
   }
 
   function updateBatchInfoCard() {
@@ -784,9 +844,13 @@
     if (!isAdmin) return;
     const select = document.getElementById("select-batch");
     selectedBatchId = select.value;
-    if (!selectedBatchId) return;
+    if (!selectedBatchId) {
+      updateGenerateQueueButtons(0, true);
+      return;
+    }
 
     updateBatchInfoCard();
+    updateGenerateQueueButtons(0, true);
 
     document.getElementById("queue-loading").style.display = "block";
     document.getElementById("queue-cards-grid").style.display = "none";
@@ -796,6 +860,8 @@
       .withSuccessHandler(function (queueList) {
         document.getElementById("queue-loading").style.display = "none";
         currentQueue = queueList || [];
+        updateGenerateQueueButtons(currentQueue.length);
+        setQueueRefreshLoading(false);
 
         if (currentQueue.length === 0) {
           document.getElementById("queue-empty").style.display = "block";
@@ -806,9 +872,30 @@
       })
       .withFailureHandler(function (err) {
         document.getElementById("queue-loading").style.display = "none";
+        updateGenerateQueueButtons(0);
+        setQueueRefreshLoading(false);
         showToast(err.message, true);
       })
       .getQueueByBatch(selectedBatchId, getAdminToken());
+  }
+
+  function updateGenerateQueueButtons(queueCount, loading) {
+    const batch = currentBatches.find(b => b.id_batch === selectedBatchId);
+    const quantity = batch ? Number(batch.jumlah_stok) || 25 : 25;
+    const buttons = [
+      document.getElementById("generate-queue-button"),
+      document.getElementById("generate-queue-empty-button")
+    ];
+
+    buttons.forEach(function (button) {
+      if (!button) return;
+      button.style.display = loading || queueCount > 0 || !batch || batch.status_batch !== "DRAFT" ? "none" : "";
+    });
+
+    const toolbarButton = buttons[0];
+    const emptyButton = buttons[1];
+    if (toolbarButton) toolbarButton.textContent = `⚡ Generate Antrian (${quantity} Tabung)`;
+    if (emptyButton) emptyButton.textContent = `⚡ Generate ${quantity} Antrian Sekarang`;
   }
 
   function renderQueueCards(items) {
@@ -884,6 +971,7 @@
             </div>
           </div>
           <div class="queue-member-name">${item.nama_anggota_penerima}</div>
+          <div class="queue-member-sub" data-queue-member-nik style="font-weight: 700;"></div>
           <div class="queue-member-sub">${item.id_anggota_penerima} • ${item.rt_rw_penerima}</div>
           <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">WA: ${item.no_whatsapp || "-"}</div>
           ${replacedHtml}
@@ -891,8 +979,230 @@
         ${actionsHtml}
       `;
 
+      const nikLine = card.querySelector("[data-queue-member-nik]");
+      if (nikLine) nikLine.textContent = "NIK: " + (item.no_ktp_penerima || "Belum tersedia");
+
+      const actions = card.querySelector(".queue-actions");
+      if (actions) {
+        const mapButton = document.createElement("button");
+        mapButton.type = "button";
+        const hasMapRecord = !!(item.map_anggota_id || item.map_atas_nama);
+        mapButton.className = hasMapRecord
+          ? "btn btn-sm map-record-saved"
+          : "btn btn-outline btn-sm";
+        mapButton.textContent = hasMapRecord ? "Edit Data MAP" : "Kirim ke MAP";
+        mapButton.addEventListener("click", function () {
+          openQueueMapModal(item.id_antrian);
+        });
+        actions.appendChild(mapButton);
+      }
+
       grid.appendChild(card);
     });
+  }
+
+  function openQueueMapModal(queueId) {
+    if (!isAdmin) {
+      showToast("Login admin diperlukan untuk mencatat data MAP.", true);
+      return;
+    }
+    const item = currentQueue.find(function (queueItem) { return queueItem.id_antrian === queueId; });
+    if (!item) {
+      showToast("Data antrian tidak ditemukan. Segarkan daftar antrian lalu coba lagi.", true);
+      return;
+    }
+
+    document.getElementById("map-queue-id").value = item.id_antrian;
+    document.getElementById("map-queue-number").textContent = "#" + item.no_urut;
+    document.getElementById("map-member-name").textContent = item.nama_anggota_penerima || "-";
+    document.getElementById("map-member-nik").textContent = item.no_ktp_penerima || "Belum tersedia";
+    const exactNameMatches = function (name) {
+      const normalizedName = String(name || "").trim().toLocaleLowerCase("id");
+      return allMembersCache.filter(function (member) {
+        return String(member.nama_lengkap || "").trim().toLocaleLowerCase("id") === normalizedName;
+      });
+    };
+    let selectedMember = item.map_anggota_id
+      ? allMembersCache.find(function (member) { return member.id_anggota === item.map_anggota_id; })
+      : null;
+    const legacyName = item.map_nama_snapshot || item.map_atas_nama || "";
+    if (!selectedMember && legacyName) {
+      const legacyMatches = exactNameMatches(legacyName);
+      if (legacyMatches.length === 1) selectedMember = legacyMatches[0];
+    }
+    if (!selectedMember && !legacyName) {
+      selectedMember = allMembersCache.find(function (member) { return member.id_anggota === item.id_anggota_penerima; }) || null;
+      if (!selectedMember) {
+        const receiverMatches = exactNameMatches(item.nama_anggota_penerima);
+        if (receiverMatches.length === 1) selectedMember = receiverMatches[0];
+      }
+    }
+
+    selectedMapMemberId = selectedMember ? selectedMember.id_anggota : "";
+    const memberSearch = document.getElementById("map-member-search");
+    memberSearch.value = selectedMember
+      ? formatMapMemberLabel(selectedMember)
+      : legacyName || "";
+    closeMapMemberOptions();
+    if (selectedMember) {
+      document.getElementById("map-member-selection-status").textContent = "Dipilih: " + formatMapMemberLabel(selectedMember);
+    } else if (legacyName) {
+      document.getElementById("map-member-selection-status").textContent = "Data lama: '" + legacyName + "'. Pilih anggota koperasi dari daftar untuk memperbarui catatan.";
+    } else {
+      document.getElementById("map-member-selection-status").textContent = "Pilih anggota koperasi dari daftar.";
+    }
+    document.getElementById("map-record-status").textContent = item.map_atas_nama
+      ? "Catatan tersimpan" + (item.map_diperbarui_pada ? " • Diperbarui " + item.map_diperbarui_pada : "")
+      : "Belum ada catatan MAP untuk antrian ini.";
+    document.getElementById("save-map-record-button").disabled = false;
+    document.getElementById("save-map-record-button").textContent = "Simpan Catatan MAP";
+    openModal("modal-queue-map");
+  }
+
+  function formatMapMemberLabel(member) {
+    return String(member.nama_lengkap || "") + " — NIK: " + (String(member.no_ktp || "").trim() || "Belum tersedia");
+  }
+
+  function closeMapMemberOptions() {
+    const list = document.getElementById("map-member-options");
+    const input = document.getElementById("map-member-search");
+    if (list) {
+      list.replaceChildren();
+      list.hidden = true;
+    }
+    if (input) {
+      input.setAttribute("aria-expanded", "false");
+      input.setAttribute("aria-activedescendant", "");
+    }
+    mapMemberOptions = [];
+    mapMemberActiveIndex = -1;
+  }
+
+  function searchMapMembers() {
+    const input = document.getElementById("map-member-search");
+    const list = document.getElementById("map-member-options");
+    if (!input || !list) return;
+    const query = input.value.trim().toLocaleLowerCase("id");
+    const selectedMember = allMembersCache.find(function (member) { return member.id_anggota === selectedMapMemberId; });
+    if (!selectedMember || input.value !== formatMapMemberLabel(selectedMember)) {
+      selectedMapMemberId = "";
+      document.getElementById("map-member-selection-status").textContent = "Pilih salah satu anggota dari saran; teks bebas tidak dapat disimpan.";
+    }
+
+    mapMemberOptions = allMembersCache.filter(function (member) {
+      const name = String(member.nama_lengkap || "").toLocaleLowerCase("id");
+      const nik = String(member.no_ktp || "").toLocaleLowerCase("id");
+      return !query || name.includes(query) || nik.includes(query);
+    }).slice().sort(function (a, b) {
+      return String(a.nama_lengkap || "").localeCompare(String(b.nama_lengkap || ""), "id");
+    }).slice(0, 10);
+
+    list.replaceChildren();
+    mapMemberActiveIndex = -1;
+    if (!mapMemberOptions.length) {
+      const empty = document.createElement("div");
+      empty.className = "map-member-empty";
+      empty.textContent = allMembersCache.length ? "Tidak ada anggota yang cocok." : "Data anggota belum dimuat. Tutup lalu buka kembali modal setelah data termuat.";
+      list.appendChild(empty);
+    } else {
+      mapMemberOptions.forEach(function (member, index) {
+        const option = document.createElement("button");
+        option.type = "button";
+        option.id = "map-member-option-" + index;
+        option.className = "map-member-option";
+        option.setAttribute("role", "option");
+        option.setAttribute("aria-selected", "false");
+        const name = document.createElement("span");
+        name.className = "map-member-option-name";
+        name.textContent = member.nama_lengkap || "-";
+        const nik = document.createElement("span");
+        nik.className = "map-member-option-nik";
+        nik.textContent = "NIK: " + (String(member.no_ktp || "").trim() || "Belum tersedia");
+        option.append(name, nik);
+        option.addEventListener("click", function () { selectMapMember(index); });
+        list.appendChild(option);
+      });
+    }
+    list.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+  }
+
+  function selectMapMember(index) {
+    const member = mapMemberOptions[index];
+    if (!member) return;
+    selectedMapMemberId = member.id_anggota;
+    document.getElementById("map-member-search").value = formatMapMemberLabel(member);
+    document.getElementById("map-member-selection-status").textContent = "Dipilih: " + formatMapMemberLabel(member);
+    closeMapMemberOptions();
+  }
+
+  function handleMapMemberKeydown(event) {
+    if (event.key === "Escape") {
+      closeMapMemberOptions();
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "Enter") return;
+    const list = document.getElementById("map-member-options");
+    if (event.key === "Enter" && (!list || list.hidden)) return;
+    event.preventDefault();
+    if (event.key === "Enter") {
+      if (mapMemberActiveIndex >= 0) selectMapMember(mapMemberActiveIndex);
+      return;
+    }
+    if (!list || list.hidden) searchMapMembers();
+    if (!mapMemberOptions.length) return;
+    const step = event.key === "ArrowDown" ? 1 : -1;
+    mapMemberActiveIndex = mapMemberActiveIndex < 0
+      ? (event.key === "ArrowDown" ? 0 : mapMemberOptions.length - 1)
+      : (mapMemberActiveIndex + step + mapMemberOptions.length) % mapMemberOptions.length;
+    document.querySelectorAll("#map-member-options [role='option']").forEach(function (option, index) {
+      const active = index === mapMemberActiveIndex;
+      option.setAttribute("aria-selected", active ? "true" : "false");
+      if (active) {
+        document.getElementById("map-member-search").setAttribute("aria-activedescendant", option.id);
+        option.scrollIntoView({ block: "nearest" });
+      }
+    });
+  }
+
+  function saveQueueMapRecordFromModal() {
+    const queueId = document.getElementById("map-queue-id").value;
+    const memberId = selectedMapMemberId;
+    const saveButton = document.getElementById("save-map-record-button");
+    const selectedMember = allMembersCache.find(function (member) { return member.id_anggota === memberId; });
+    if (!selectedMember) {
+      showToast("Pilih anggota koperasi dari daftar nama dan NIK sebelum menyimpan.", true);
+      document.getElementById("map-member-search").focus();
+      return;
+    }
+
+    saveButton.disabled = true;
+    saveButton.textContent = "Menyimpan...";
+    appScript.run
+      .withSuccessHandler(function (result) {
+        saveButton.disabled = false;
+        saveButton.textContent = "Simpan Catatan MAP";
+        if (!result || !result.success) {
+          showToast(result && result.message ? result.message : "Catatan MAP gagal disimpan.", true);
+          return;
+        }
+        const item = currentQueue.find(function (queueItem) { return queueItem.id_antrian === queueId; });
+        if (item) {
+          item.map_atas_nama = result.map_atas_nama;
+          item.map_anggota_id = result.map_anggota_id;
+          item.map_nama_snapshot = result.map_nama_snapshot;
+          item.map_diperbarui_pada = result.map_diperbarui_pada;
+        }
+        closeModal("modal-queue-map");
+        renderQueueCards(currentQueue);
+        showToast(result.message);
+      })
+      .withFailureHandler(function (error) {
+        saveButton.disabled = false;
+        saveButton.textContent = "Simpan Catatan MAP";
+        showToast(error && error.message ? error.message : "Catatan MAP gagal disimpan.", true);
+      })
+        .saveQueueMapRecord(queueId, memberId, getAdminToken());
   }
 
   // ==========================================
@@ -949,12 +1259,14 @@
   }
 
   function triggerAutoGenerateQueue() {
-    if (!selectedBatchId) {
+    const batch = currentBatches.find(b => b.id_batch === selectedBatchId);
+    if (!batch) {
       showToast("Pilih atau buat batch terlebih dahulu.", true);
       return;
     }
+    const quantity = Number(batch.jumlah_stok) || 25;
 
-    if (confirm(`Generate 25 antrian otomatis untuk ${selectedBatchId} berdasarkan urutan prioritas adil?`)) {
+    if (confirm(`Generate ${quantity} antrian otomatis untuk ${selectedBatchId} berdasarkan urutan prioritas adil?`)) {
       showToast("Sedang menghitung prioritas & meng-generate antrian...");
       appScript.run
         .withSuccessHandler(function (res) {
@@ -966,7 +1278,7 @@
         .withFailureHandler(function (err) {
           showToast(err.message, true);
         })
-        .generateBatchQueue(selectedBatchId, 25, getAdminToken());
+        .generateBatchQueue(selectedBatchId, quantity, getAdminToken());
     }
   }
 
@@ -1192,7 +1504,11 @@
   }
 
   function reportColumnCount() {
-    return isAdmin ? 8 : 7;
+    return (isAdmin ? 7 : 6) + (isCumulativeReportVisible() ? 1 : 0);
+  }
+
+  function isCumulativeReportVisible() {
+    return isAdmin || String(appSettings.TAMPILKAN_TOTAL_KUMULATIF).toLowerCase() === "true";
   }
 
   function compareReportMembers(a, b) {
@@ -1269,7 +1585,7 @@
       if (isAdmin) cells.push({ value: m.no_whatsapp || "-" });
       cells.push(
         { value: m.total_beli_bulan_ini || 0 },
-        { value: m.total_beli_kumulatif || 0 },
+        ...(isCumulativeReportVisible() ? [{ value: m.total_beli_kumulatif || 0 }] : []),
         { value: m.tgl_terakhir_beli || "-" },
         { badge: true, value: isServed ? "Sudah Ambil (" + m.total_beli_bulan_ini + ")" : "Belum Dapat (Prioritas)", className: isServed ? "kpi-badge badge-success" : "kpi-badge badge-primary" }
       );
@@ -1320,10 +1636,12 @@
       ["RT/RW", function (m) { return m.rt_rw; }],
       ["No HP/WA", function (m) { return m.no_whatsapp; }],
       ["Beli Bulan Ini", function (m) { return m.total_beli_bulan_ini; }],
-      ["Total Kumulatif", function (m) { return m.total_beli_kumulatif; }],
       ["Terakhir Ambil Gas", function (m) { return m.tgl_terakhir_beli; }],
       ["Status Kuota", function (m) { return m.total_beli_bulan_ini > 0 ? "Sudah Ambil" : "Belum Dapat"; }]
     ];
+    if (isCumulativeReportVisible()) {
+      csvColumns.splice(5, 0, ["Total Kumulatif", function (m) { return m.total_beli_kumulatif; }]);
+    }
     var csv = csvColumns.map(function (column) { return column[0]; }).join(",") + "\n";
     allMembersCache.forEach(function (member) {
       csv += csvColumns.map(function (column) {
@@ -1491,12 +1809,19 @@
     const tbody = document.getElementById("member-table-body");
     tbody.innerHTML = "";
 
+    document.querySelectorAll("[data-member-sort-indicator]").forEach(function (indicator) {
+      const active = indicator.dataset.memberSortIndicator === memberSort.key;
+      indicator.textContent = active ? (memberSort.direction === 1 ? "▲" : "▼") : "↕";
+      const header = indicator.closest("th");
+      if (header) header.setAttribute("aria-sort", active ? (memberSort.direction === 1 ? "ascending" : "descending") : "none");
+    });
+
     if (!members || members.length === 0) {
       tbody.innerHTML = "<tr><td colspan='8' style='text-align:center; padding:20px;'>Belum ada data anggota.</td></tr>";
       return;
     }
 
-    members.forEach(m => {
+    members.slice().sort(compareMembersForTable).forEach(m => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td><strong>${m.id_anggota}</strong></td>
@@ -1510,8 +1835,38 @@
           <button class="btn btn-outline btn-sm" onclick="openEditMemberModal('${m.id_anggota}')">Edit</button>
         </td>
       `;
+      const statusBadge = tr.querySelector("td:nth-child(6) span");
+      const exitReason = String(m.alasan_keluar || "").trim();
+      if (statusBadge && m.status_aktif !== "AKTIF" && exitReason) {
+        statusBadge.title = exitReason;
+      }
       tbody.appendChild(tr);
     });
+  }
+
+  function compareMembersForTable(a, b) {
+    const key = memberSort.key;
+    const left = a[key];
+    const right = b[key];
+    let comparison;
+    if (key === "total_beli_kumulatif") {
+      comparison = Number(left || 0) - Number(right || 0);
+    } else {
+      comparison = String(left || "").localeCompare(String(right || ""), "id", {
+        numeric: true,
+        sensitivity: "base"
+      });
+    }
+    if (comparison === 0 && key !== "id_anggota") {
+      comparison = String(a.id_anggota || "").localeCompare(String(b.id_anggota || ""), "id", { numeric: true });
+    }
+    return comparison * memberSort.direction;
+  }
+
+  function sortMemberTable(key) {
+    if (memberSort.key === key) memberSort.direction *= -1;
+    else memberSort = { key: key, direction: 1 };
+    filterMemberTable();
   }
 
   function filterMemberTable() {
@@ -1541,6 +1896,7 @@
     document.getElementById("form-member-rt").value = "";
     document.getElementById("form-member-wa").value = "";
     document.getElementById("form-member-status").value = "AKTIF";
+    document.getElementById("form-member-exit-reason").value = "";
     openModal("modal-member");
   }
 
@@ -1555,6 +1911,7 @@
     document.getElementById("form-member-rt").value = m.rt_rw;
     document.getElementById("form-member-wa").value = m.no_whatsapp;
     document.getElementById("form-member-status").value = m.status_aktif;
+    document.getElementById("form-member-exit-reason").value = m.alasan_keluar || "";
     openModal("modal-member");
   }
 
@@ -1565,7 +1922,8 @@
       no_ktp: document.getElementById("form-member-nik").value,
       rt_rw: document.getElementById("form-member-rt").value,
       no_whatsapp: document.getElementById("form-member-wa").value,
-      status_aktif: document.getElementById("form-member-status").value
+      status_aktif: document.getElementById("form-member-status").value,
+      alasan_keluar: document.getElementById("form-member-exit-reason").value.trim()
     };
 
     if (!data.nama_lengkap) {
@@ -1621,18 +1979,36 @@
 
   function importFromReference() {
     if (confirm("Salin data anggota warga Desa Gulun dari sheet 'template_simkopdes' ke dalam database? Data referensi asli tidak akan diubah.")) {
-      showToast("Sedang membaca & menyalin data dari sheet template_simkopdes...");
+      const importButton = document.querySelector("#tab-settings button[onclick='importFromReference()']");
+      if (importButton) importButton.disabled = true;
+      showToast("Sedang membaca dan menyinkronkan data anggota...");
       appScript.run
         .withSuccessHandler(function (res) {
-          showToast(res.message);
+          if (importButton) importButton.disabled = false;
+          if (!res || !res.success) {
+            showToast(res && res.message ? res.message : "Sinkronisasi anggota gagal.", true);
+            return;
+          }
+          const importedCount = Number(res.totalImported || 0);
+          const updatedCount = Number(res.totalUpdated || 0);
+          const totalCount = Number(res.totalMembersNow || 0);
+          document.getElementById("member-import-result-message").textContent = importedCount + updatedCount === 0
+            ? "Data sudah sinkron. Tidak ada anggota baru atau perubahan status yang perlu diterapkan."
+            : `Sinkronisasi selesai dari sheet ${res.sheetSource || "referensi"}.`;
+          document.getElementById("member-imported-count").textContent = importedCount.toLocaleString("id-ID");
+          document.getElementById("member-updated-count").textContent = updatedCount.toLocaleString("id-ID");
+          document.getElementById("member-total-count").textContent = totalCount.toLocaleString("id-ID");
+          document.getElementById("member-import-source").textContent = res.message || "";
+          openModal("modal-member-import-result");
           loadMembersData();
           loadDashboardData();
           loadPublicData();
         })
         .withFailureHandler(function (err) {
+          if (importButton) importButton.disabled = false;
           showToast(err.message, true);
         })
-        .importMembersFromReference(null, "template_simkopdes", getAdminToken());
+        .importMembersFromReference("template_simkopdes", getAdminToken());
     }
   }
 

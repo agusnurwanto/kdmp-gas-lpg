@@ -19,13 +19,13 @@
     <table class="data-table">
       <thead>
         <tr>
-          <th>ID</th>
-          <th>Nama Lengkap</th>
-          <th>NIK</th>
-          <th>RT / RW</th>
-          <th>No WhatsApp</th>
-          <th>Status</th>
-          <th style="text-align: center;">Total Beli</th>
+          <th><button class="member-sort-button" type="button" onclick="sortMemberTable('id_anggota')">ID <span data-member-sort-indicator="id_anggota">↕</span></button></th>
+          <th><button class="member-sort-button" type="button" onclick="sortMemberTable('nama_lengkap')">Nama Lengkap <span data-member-sort-indicator="nama_lengkap">↕</span></button></th>
+          <th><button class="member-sort-button" type="button" onclick="sortMemberTable('no_ktp')">NIK <span data-member-sort-indicator="no_ktp">↕</span></button></th>
+          <th><button class="member-sort-button" type="button" onclick="sortMemberTable('rt_rw')">RT / RW <span data-member-sort-indicator="rt_rw">↕</span></button></th>
+          <th><button class="member-sort-button" type="button" onclick="sortMemberTable('no_whatsapp')">No WhatsApp <span data-member-sort-indicator="no_whatsapp">↕</span></button></th>
+          <th><button class="member-sort-button" type="button" onclick="sortMemberTable('status_aktif')">Status <span data-member-sort-indicator="status_aktif">↕</span></button></th>
+          <th style="text-align: center;"><button class="member-sort-button" type="button" onclick="sortMemberTable('total_beli_kumulatif')">Total Beli <span data-member-sort-indicator="total_beli_kumulatif">↕</span></button></th>
           <th>Aksi</th>
         </tr>
       </thead>
@@ -102,6 +102,20 @@
 <!-- TAB SETTINGS & SYNC -->
 <div id="tab-settings" class="tab-pane">
   <div class="kpi-grid">
+    <div class="kpi-card" style="grid-column: span 2;">
+      <span class="kpi-label">PRIVASI LAPORAN</span>
+      <h3 style="margin: 8px 0 12px; color: var(--secondary);">Tampilan Total Kumulatif</h3>
+      <label class="form-label" for="setting-cumulative-visibility">Kolom total kumulatif pada laporan publik</label>
+      <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 8px;">
+        <select id="setting-cumulative-visibility" class="select-control">
+          <option value="false">Sembunyikan</option>
+          <option value="true">Tampilkan</option>
+        </select>
+        <button class="btn btn-primary" id="save-cumulative-visibility-button" type="button" onclick="saveCumulativeVisibilitySetting()">Simpan pilihan</button>
+      </div>
+      <p style="font-size: 12px; color: var(--text-muted); margin-top: 10px;">Default disembunyikan. Saat disembunyikan, angka kumulatif juga tidak dikirim pada data anggota publik.</p>
+    </div>
+
     <div class="kpi-card" style="grid-column: span 2;">
       <span class="kpi-label">IDENTITAS KOPERASI</span>
       <h3 style="margin: 8px 0 12px; color: var(--secondary);">Nama dan logo KDMP / KKMP</h3>
@@ -190,10 +204,35 @@
           <option value="NONAKTIF">NONAKTIF</option>
         </select>
       </div>
+      <div class="form-group">
+        <label class="form-label" for="form-member-exit-reason">Alasan Keluar:</label>
+        <textarea id="form-member-exit-reason" class="input-text" style="width: 100%; min-height: 84px; resize: vertical;" placeholder="Isi jika anggota sudah keluar"></textarea>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('modal-member')">Batal</button>
       <button class="btn btn-primary" onclick="saveMemberForm()">Simpan Data</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-member-import-result" class="modal-backdrop" role="presentation">
+  <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="member-import-result-title">
+    <div class="modal-header">
+      <h3 id="member-import-result-title" class="modal-title">Sinkronisasi Anggota Selesai</h3>
+      <button class="modal-close" type="button" aria-label="Tutup" onclick="closeModal('modal-member-import-result')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p id="member-import-result-message" style="margin-bottom: 16px; color: var(--text-muted);"></p>
+      <dl class="member-import-summary">
+        <div><dt>Anggota baru</dt><dd id="member-imported-count">0</dd></div>
+        <div><dt>Anggota diperbarui</dt><dd id="member-updated-count">0</dd></div>
+        <div><dt>Total anggota di master</dt><dd id="member-total-count">0</dd></div>
+      </dl>
+      <p id="member-import-source" style="margin-top: 14px; font-size: 12px; color: var(--text-muted);"></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" type="button" onclick="closeModal('modal-member-import-result')">Selesai</button>
     </div>
   </div>
 </div>

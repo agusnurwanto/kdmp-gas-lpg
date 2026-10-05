@@ -363,6 +363,18 @@
     background: #F1F5F9;
   }
 
+  .map-record-saved {
+    border-color: #EAB308;
+    background: #FEF08A;
+    color: #713F12;
+  }
+
+  .map-record-saved:hover {
+    border-color: #CA8A04;
+    background: #FDE047;
+    color: #713F12;
+  }
+
   .btn-sm {
     padding: 4px 8px;
     font-size: 12px;
@@ -439,6 +451,73 @@
   .queue-member-sub {
     font-size: 12px;
     color: var(--text-muted);
+  }
+
+  .map-member-combobox {
+    position: relative;
+  }
+
+  .map-member-options {
+    position: absolute;
+    z-index: 1010;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    max-height: 240px;
+    overflow-y: auto;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-md);
+  }
+
+  .map-member-options[hidden] {
+    display: none;
+  }
+
+  .map-member-option {
+    display: block;
+    width: 100%;
+    padding: 10px 12px;
+    border: 0;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-surface);
+    color: var(--text-main);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .map-member-option:last-child {
+    border-bottom: 0;
+  }
+
+  .map-member-option:hover,
+  .map-member-option[aria-selected="true"] {
+    background: #EFF6FF;
+  }
+
+  .map-member-option-name {
+    display: block;
+    font-weight: 700;
+  }
+
+  .map-member-option-nik {
+    display: block;
+    margin-top: 2px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .map-member-empty {
+    padding: 12px;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+
+  .map-member-selection-status {
+    margin-top: 6px;
+    color: var(--text-muted);
+    font-size: 12px;
   }
 
   .queue-replaced-info {
@@ -535,6 +614,50 @@
     opacity: 0;
     visibility: hidden;
     transition: all 0.2s ease;
+  }
+
+  .member-sort-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .member-sort-button span {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+
+  .member-import-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    margin: 0;
+  }
+
+  .member-import-summary dt {
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .member-import-summary dd {
+    margin: 4px 0 0;
+    color: var(--secondary);
+    font-size: 22px;
+    font-weight: 800;
+  }
+
+  @media (max-width: 560px) {
+    .member-import-summary {
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
   }
 
   .modal-backdrop.show {

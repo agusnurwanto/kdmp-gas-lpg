@@ -10,8 +10,11 @@
     </div>
 
     <div class="toolbar-right">
-      <button class="btn btn-primary" onclick="triggerAutoGenerateQueue()">
-        ⚡ Generate Antrian (25 Tabung)
+      <button id="refresh-queue-button" class="btn btn-outline" onclick="refreshQueuePage()" title="Segarkan batch dan status antrian">
+        🔄 Segarkan
+      </button>
+      <button id="generate-queue-button" class="btn btn-primary" onclick="triggerAutoGenerateQueue()">
+        ⚡ Generate Antrian
       </button>
       <button class="btn btn-outline" onclick="copyQueueToWhatsApp()">
         📢 Salin Teks WA
@@ -55,8 +58,8 @@
     <div id="queue-cards-grid" class="queue-grid" style="display: none;"></div>
     <div id="queue-empty" style="display: none; text-align: center; padding: 50px; background: white; border-radius: var(--radius-lg); border: 1px dashed var(--border-color);">
       <h3 style="color: var(--secondary); margin-bottom: 8px;">Belum Ada Antrian untuk Batch Ini</h3>
-      <p style="color: var(--text-muted); margin-bottom: 16px; font-size: 14px;">Klik tombol "Generate Antrian" untuk otomatis memilih 25 anggota dengan prioritas paling adil.</p>
-      <button class="btn btn-primary" onclick="triggerAutoGenerateQueue()">⚡ Generate 25 Antrian Sekarang</button>
+      <p style="color: var(--text-muted); margin-bottom: 16px; font-size: 14px;">Generate antrian sejumlah stok batch dengan prioritas paling adil.</p>
+      <button id="generate-queue-empty-button" class="btn btn-primary" onclick="triggerAutoGenerateQueue()">⚡ Generate Antrian Sekarang</button>
     </div>
   </div>
 </div>
@@ -70,7 +73,7 @@
     </div>
     <div class="modal-body">
       <div class="form-group">
-        <label class="form-label">Tanggal Jadwal Kedatangan (Jumat):</label>
+        <label class="form-label">Tanggal Jadwal Kedatangan:</label>
         <input type="date" id="new-batch-date" class="input-text" style="width: 100%;">
       </div>
       <div class="form-group">
@@ -179,6 +182,42 @@
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('modal-swap')">Batal</button>
       <button class="btn btn-primary" onclick="submitSwap()">Tukar Posisi Sekarang</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Catatan Data MAP -->
+<div id="modal-queue-map" class="modal-backdrop" role="presentation">
+  <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="queue-map-title">
+    <div class="modal-header">
+      <h3 id="queue-map-title" class="modal-title">Catatan Data MAP</h3>
+      <button class="modal-close" type="button" aria-label="Tutup" onclick="closeModal('modal-queue-map')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="map-queue-id">
+      <div style="background: #F8FAFC; padding: 14px; border-radius: var(--radius-sm); margin-bottom: 16px;">
+        <div style="font-size: 12px; color: var(--text-muted);">Antrian <strong id="map-queue-number">-</strong></div>
+        <div style="margin-top: 8px; font-size: 12px; color: var(--text-muted);">Nama anggota / pemilik NIK</div>
+        <div id="map-member-name" style="font-size: 18px; font-weight: 700; color: var(--secondary);">-</div>
+        <div style="margin-top: 8px; font-size: 12px; color: var(--text-muted);">NIK yang akan dicatat di MAP</div>
+        <div id="map-member-nik" style="font-size: 16px; font-weight: 700; color: var(--text-main);">-</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="map-member-search">MAP atas nama siapa?</label>
+        <div class="map-member-combobox">
+          <input id="map-member-search" class="input-text" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="map-member-options" aria-activedescendant="" autocomplete="off" style="width: 100%;" placeholder="Cari nama atau NIK anggota" oninput="searchMapMembers()" onkeydown="handleMapMemberKeydown(event)" onfocus="searchMapMembers()">
+          <div id="map-member-options" class="map-member-options" role="listbox" aria-label="Hasil pencarian anggota" hidden></div>
+        </div>
+        <p id="map-member-selection-status" class="map-member-selection-status" aria-live="polite">Pilih anggota koperasi dari daftar.</p>
+      </div>
+      <p id="map-record-status" style="margin-bottom: 10px; font-size: 12px; color: var(--text-muted);"></p>
+      <p style="padding: 10px; background: #FFFBEB; border-radius: var(--radius-sm); color: #92400E; font-size: 12px;">
+        Catatan ini disimpan di spreadsheet internal dan belum dikirim melalui API MAP.
+      </p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" type="button" onclick="closeModal('modal-queue-map')">Batal</button>
+      <button id="save-map-record-button" class="btn btn-primary" type="button" onclick="saveQueueMapRecordFromModal()">Simpan Catatan MAP</button>
     </div>
   </div>
 </div>
