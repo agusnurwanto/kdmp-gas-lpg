@@ -207,21 +207,74 @@ Deployment mengambil berkas GAS dari folder `src/`, sesuai `rootDir` pada `.clas
 
 ### Persiapan pertama kali
 
-1. Pasang Node.js dan npm, lalu pasang clasp:
+1. Pasang Node.js versi LTS yang menyertakan npm. Pastikan keduanya tersedia:
+
+  ```powershell
+  node --version
+  npm --version
+  ```
+
+2. Pasang clasp secara global dan periksa versinya:
 
   ```powershell
   npm install -g @google/clasp
+  clasp --version
   ```
 
-2. Aktifkan Google Apps Script API pada pengaturan akun Google Apps Script.
-3. Dari root repository, salin `.clasp.json.example` menjadi `.clasp.json`, lalu isi `scriptId` dengan ID project Apps Script dan pertahankan `rootDir` sebagai `./src`.
-4. Login sekali dengan akun yang memiliki akses ke project:
+3. Aktifkan Google Apps Script API pada pengaturan akun Google Apps Script.
+4. Dari root repository, salin `.clasp.json.example` menjadi `.clasp.json`, lalu isi `scriptId` dengan ID project Apps Script dan pertahankan `rootDir` sebagai `./src`. File `.clasp.json` bersifat lokal dan jangan commit jika berisi ID project privat.
+5. Login dengan akun Google yang memiliki akses ke project:
 
   ```powershell
   clasp login
   ```
 
-  File autentikasi clasp bersifat rahasia dan tidak boleh dimasukkan ke Git.
+  Ikuti browser untuk memberi izin. Bila callback localhost tidak dapat digunakan, jalankan `clasp login --no-localhost` dan ikuti instruksi kode yang ditampilkan. File kredensial clasp bersifat rahasia dan tidak boleh dimasukkan ke Git.
+
+### Menambahkan file atau project
+
+Untuk menambahkan file sumber ke project yang sudah dihubungkan, buat atau salin file `.gs`, `.html`, atau `appsscript.json` ke dalam `src/`. Clasp akan mendeteksi file tersebut berdasarkan `rootDir`; periksa daftar file dengan `clasp status`, kemudian unggah dengan `clasp push`.
+
+```powershell
+# Setelah file baru dibuat di src/
+clasp status
+clasp push
+```
+
+Jika ingin menautkan folder lokal ke project Apps Script yang sudah ada dan belum memiliki `.clasp.json`, gunakan `clasp clone` dengan Script ID:
+
+```powershell
+clasp clone "SCRIPT_ID" --rootDir ./src
+```
+
+Untuk membuat project Apps Script baru dari folder lokal, gunakan `clasp create`. Contoh standalone:
+
+```powershell
+clasp create --type standalone --title "KDMP Gas LPG" --rootDir ./src
+```
+
+`clasp create` membuat project baru dan menulis konfigurasi project lokal. Gunakan hanya saat memang ingin membuat project baru; untuk project KDMP yang sudah ada, pertahankan Script ID yang benar pada `.clasp.json`.
+
+### Siklus kerja dari komputer lokal
+
+Jalankan perintah dari direktori root `kdmp-gas-lpg` (folder yang berisi `.clasp.json`). `rootDir: "./src"` berarti hanya berkas GAS di dalam `src/` yang disinkronkan.
+
+```powershell
+# Lihat perubahan lokal dibanding project Apps Script
+clasp status
+
+# Unggah berkas lokal ke project Apps Script sebagai HEAD
+clasp push
+```
+
+`clasp push` hanya memperbarui kode HEAD pada project Apps Script; perintah itu tidak otomatis memperbarui Web App yang memakai deployment berversi. Sebelum mengambil kode remote dengan `clasp pull`, simpan atau commit perubahan lokal dan periksa berkas yang akan terkena dampak karena pull dapat mengganti berkas di `src/`.
+
+```powershell
+# Ambil berkas project Apps Script ke rootDir lokal
+clasp pull
+```
+
+Jangan gunakan `clasp push --force` sebagai langkah rutin. Opsi force melewati pemeriksaan perbedaan dan dapat menimpa perubahan remote yang belum ada di lokal. Periksa `clasp status` dan sinkronkan perubahan terlebih dahulu.
 
 ### Push dan buat versi
 
@@ -256,11 +309,15 @@ clasp deployments
 
 Pastikan keluaran deploy menyebut ID yang benar dan daftar deployment menunjukkan versi terbaru. Redeploy memakai ID deployment yang sama sehingga URL Web App tetap sama. Deployment `@HEAD` adalah deployment tanpa versi tetap; untuk rilis yang dipakai pengguna, gunakan deployment berversi yang memang menjadi URL produksi. Jangan memilih ID sebelum memastikan URL yang digunakan.
 
+Untuk memulihkan rilis, buat versi baru dari kode yang sudah dipulihkan lalu redeploy ID deployment produksi yang sama ke nomor versi tersebut. Jangan menghapus deployment aktif atau membuat ID deployment baru jika URL produksi harus tetap dipakai.
+
 Untuk deployment pertama, buat deployment Web App dari Apps Script atau gunakan `clasp deploy` tanpa `-i`, lalu catat ID/URL yang dihasilkan. Periksa pengaturan **Execute as** dan **Who has access** di Apps Script. Manifest saat ini menggunakan `USER_DEPLOYING` dan `ANYONE_ANONYMOUS`; pastikan pengaturan akses sesuai kebijakan sebelum memublikasikan. Setelah perubahan berikutnya, ulangi `clasp push`, `clasp version`, lalu redeploy ID yang sama.
 
 ### Konfigurasi secret API
 
 Tambahkan Script Property `API_SECRET_KEY` di **Apps Script → Project Settings → Script Properties**. Nilainya harus cocok dengan `GAS_API_KEY` pada konfigurasi MCP. Jangan menaruh key asli di README, `.clasp.json`, atau repository.
+
+Properti runtime seperti `API_SECRET_KEY`, `REFERENCE_SHEET_ID`, dan `SPREADSHEET_ID` dikelola di **Project Settings → Script Properties**. Properti ini terpisah dari `.clasp.json` dan tidak disinkronkan oleh `clasp push`; atur atau periksa nilainya di project Apps Script yang benar, termasuk setelah membuat project/deployment baru.
 
 ## 8. Arsitektur File Proyek
 

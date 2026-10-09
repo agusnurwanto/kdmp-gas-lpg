@@ -22,6 +22,9 @@
       <button class="btn btn-outline" onclick="window.print()">
         🖨️ Cetak
       </button>
+      <button class="btn btn-outline" onclick="openBulkReplaceModal()">
+        ⇄ Ganti Masal
+      </button>
     </div>
   </div>
 
@@ -143,10 +146,12 @@
         💡 <strong>Info:</strong> Kuota dan rekap pembelian akan dicatatkan pada anggota pengganti yang dipilih. Anggota awal tetap berstatus belum dapat sehingga akan diprioritaskan di batch berikutnya.
       </div>
       <div class="form-group">
-        <label class="form-label">Anggota Pengganti:</label>
-        <select id="replace-new-member" class="select-control" style="width: 100%;">
-          <option value="">Pilih anggota pengganti...</option>
-        </select>
+        <label class="form-label" for="replace-member-search">Anggota Pengganti:</label>
+        <div class="member-combobox">
+          <input id="replace-member-search" class="input-text" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="replace-member-options" aria-activedescendant="" autocomplete="off" style="width: 100%;" placeholder="Cari nama atau NIK anggota">
+          <div id="replace-member-options" class="member-combobox-options" role="listbox" aria-label="Hasil anggota pengganti" hidden></div>
+        </div>
+        <p id="replace-member-selection" class="member-combobox-status" aria-live="polite">Pilih anggota dari saran.</p>
       </div>
       <div class="form-group">
         <label class="form-label">Alasan Penggantian / Keterangan:</label>
@@ -155,7 +160,25 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('modal-replace')">Batal</button>
-      <button class="btn btn-primary" onclick="submitReplace()">Simpan Penggantian</button>
+      <button id="replace-save-button" class="btn btn-primary" onclick="submitReplace()">Simpan Penggantian</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Ganti Penerima Masal -->
+<div id="modal-bulk-replace" class="modal-backdrop" role="presentation">
+  <div class="modal-dialog bulk-replace-dialog" role="dialog" aria-modal="true" aria-labelledby="bulk-replace-title">
+    <div class="modal-header">
+      <h3 id="bulk-replace-title" class="modal-title">Ganti Penerima Batch</h3>
+      <button class="modal-close" type="button" aria-label="Tutup" onclick="requestCloseBulkReplaceModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p id="bulk-replace-description" style="margin-bottom: 12px; color: var(--text-muted); font-size: 13px;">Pilih penerima baru pada slot yang perlu dialihkan. Setiap pilihan disimpan otomatis.</p>
+      <div id="bulk-replace-list" class="bulk-replace-list"></div>
+    </div>
+    <div class="modal-footer">
+      <span id="bulk-replace-summary" class="bulk-replace-summary" aria-live="polite"></span>
+      <button class="btn btn-primary" type="button" onclick="requestCloseBulkReplaceModal()">Selesai</button>
     </div>
   </div>
 </div>

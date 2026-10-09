@@ -162,7 +162,10 @@ function handleApiPost(data) {
       return swapQueuePosition(data.queueId1, data.queueId2);
 
     case "replaceQueueMember":
-      return replaceQueueMember(data.queueId, data.newMemberId, data.reason);
+      return replaceQueueMember(data.queueId, data.newMemberId, data.reason, data.sessionToken);
+
+    case "replaceQueueMembersBulk":
+      return replaceQueueMembersBulk(data.batchId, data.mappings, data.reason, data.sessionToken);
 
     case "cancelOrSkipQueue":
       return cancelOrSkipQueue(data.queueId, data.reason);

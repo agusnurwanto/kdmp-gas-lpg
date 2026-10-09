@@ -520,6 +520,156 @@
     font-size: 12px;
   }
 
+  .member-combobox {
+    position: relative;
+    width: 100%;
+    display: block;
+  }
+
+  .member-combobox input,
+  .member-combobox .input-text,
+  .member-combobox-options {
+    width: 100% !important;
+    box-sizing: border-box;
+    min-width: 0;
+  }
+
+  .member-combobox-options {
+    position: absolute;
+    z-index: 1010;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    max-height: 230px;
+    overflow-y: auto;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-md);
+  }
+
+  .member-combobox-options[hidden] {
+    display: none;
+  }
+
+  .member-combobox-option {
+    display: block;
+    width: 100%;
+    padding: 10px 12px;
+    border: 0;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-surface);
+    color: var(--text-main);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .member-combobox-option:last-child {
+    border-bottom: 0;
+  }
+
+  .member-combobox-option:hover,
+  .member-combobox-option[aria-selected="true"] {
+    background: #EFF6FF;
+  }
+
+  .member-combobox-option-name {
+    display: block;
+    font-weight: 700;
+  }
+
+  .member-combobox-option-details {
+    display: block;
+    margin-top: 2px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .member-combobox-empty,
+  .member-combobox-status {
+    padding: 8px 10px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .member-combobox-status {
+    padding: 5px 0 0;
+  }
+
+  .bulk-replace-dialog {
+    max-height: calc(100vh - 32px);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .modal-dialog.bulk-replace-dialog {
+    width: min(1100px, calc(100vw - 32px));
+    max-width: 1100px;
+  }
+
+  .bulk-replace-dialog .modal-body {
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .bulk-replace-list {
+    display: grid;
+    gap: 10px;
+  }
+
+  .bulk-replace-row {
+    display: grid;
+    grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.2fr);
+    gap: 12px;
+    align-items: start;
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+  }
+
+  .bulk-replace-slot {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--secondary);
+  }
+
+  .bulk-replace-current {
+    margin-top: 3px;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 400;
+  }
+
+  .bulk-replace-row-status {
+    grid-column: 1 / -1;
+    margin-top: -6px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .bulk-replace-row-status.is-error {
+    color: var(--danger);
+  }
+
+  .bulk-replace-summary {
+    margin-right: auto;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  @media (max-width: 600px) {
+    .modal-dialog.bulk-replace-dialog {
+      width: 100%;
+      max-width: none;
+      max-height: calc(100vh - 20px);
+    }
+
+    .bulk-replace-row {
+      grid-template-columns: 1fr;
+    }
+  }
+
   .queue-replaced-info {
     font-size: 11px;
     background: #FEF3C7;

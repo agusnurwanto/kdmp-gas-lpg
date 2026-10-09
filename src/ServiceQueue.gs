@@ -488,16 +488,21 @@ function swapQueuePosition(queueId1, queueId2, sessionToken) {
  * @param {string} sessionToken - Token sesi admin dari frontend
  */
 function replaceQueueMember(queueId, newMemberId, reason, sessionToken) {
-  if (sessionToken !== undefined && !validateSession(sessionToken)) {
+  if (!validateSession(sessionToken)) {
     throw new Error("Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.");
   }
   const db = getDatabase();
   const sheet = db.getSheetByName(CONFIG.SHEETS.ANTRIAN_DISTRIBUSI);
   const values = sheet.getDataRange().getValues();
 
-  const newMember = getMemberById_(newMemberId);
+  const newMember = getAllMembers_().find(function (member) {
+    return String(member.id_anggota) === String(newMemberId || "").trim();
+  });
   if (!newMember) {
     throw new Error(`Anggota baru dengan ID ${newMemberId} tidak ditemukan.`);
+  }
+  if (newMember.status_aktif !== "AKTIF") {
+    throw new Error("Anggota pengganti harus berstatus AKTIF.");
   }
 
   for (let i = 1; i < values.length; i++) {
@@ -528,6 +533,62 @@ function replaceQueueMember(queueId, newMemberId, reason, sessionToken) {
   }
 
   throw new Error(`Antrian dengan ID ${queueId} tidak ditemukan.`);
+}
+
+function replaceQueueMembersBulk(batchId, mappings, reason, sessionToken) {
+  if (!validateSession(sessionToken)) {
+    throw new Error("Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.");
+  }
+  const cleanBatchId = String(batchId || "").trim();
+  if (!cleanBatchId) throw new Error("Pilih batch terlebih dahulu.");
+  if (!Array.isArray(mappings) || mappings.length === 0) {
+    throw new Error("Tidak ada perubahan penerima yang dikirim.");
+  }
+
+  const db = getDatabase();
+  const queueSheet = db.getSheetByName(CONFIG.SHEETS.ANTRIAN_DISTRIBUSI);
+  const queueValues = queueSheet.getDataRange().getValues();
+  const batchQueueById = new Map();
+  for (let i = 1; i < queueValues.length; i++) {
+    if (String(queueValues[i][1] || "").trim() === cleanBatchId) {
+      batchQueueById.set(String(queueValues[i][0] || "").trim(), queueValues[i]);
+    }
+  }
+
+  const activeMemberIds = new Set(getAllMembers_().filter(function (member) {
+    return member.status_aktif === "AKTIF";
+  }).map(function (member) { return String(member.id_anggota); }));
+  const seenQueueIds = new Set();
+  const results = mappings.map(function (mapping) {
+    const queueId = String(mapping && mapping.queueId || "").trim();
+    const newMemberId = String(mapping && mapping.newMemberId || "").trim();
+    const queueRow = batchQueueById.get(queueId);
+    if (!queueId || !queueRow) {
+      return { queueId: queueId, success: false, message: "Slot tidak ditemukan pada batch ini." };
+    }
+    if (seenQueueIds.has(queueId)) {
+      return { queueId: queueId, success: false, message: "Slot duplikat dalam permintaan." };
+    }
+    seenQueueIds.add(queueId);
+    if (!newMemberId || !activeMemberIds.has(newMemberId)) {
+      return { queueId: queueId, success: false, message: "Pilih anggota aktif yang valid." };
+    }
+    if (String(queueRow[4] || "") === newMemberId) {
+      return { queueId: queueId, success: true, unchanged: true, message: "Penerima sudah sesuai; tidak ada perubahan." };
+    }
+    try {
+      const result = replaceQueueMember(queueId, newMemberId, reason || "Penggantian penerima masal", sessionToken);
+      return { queueId: queueId, success: true, message: result.message, newMemberId: result.newMemberId, newMemberName: result.newMemberName };
+    } catch (error) {
+      return { queueId: queueId, success: false, message: error && error.message ? error.message : "Penggantian gagal." };
+    }
+  });
+
+  return {
+    success: true,
+    message: "Pemetaan penerima batch selesai diproses.",
+    results: results
+  };
 }
 
 /**
