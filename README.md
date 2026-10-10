@@ -149,7 +149,9 @@ graph TD
 ```
 
 ### Fitur Transaksi & Kasir:
-- **Konfirmasi pengambilan dan pembayaran (`confirmPickupAndPayment`)**: Mencatat pembeli/pengambil, metode bayar, transaksi, serta perubahan stok dan riwayat pembelian.
+- **Pengaturan Massal Antrian Batch**: Tombol **Ganti Masal** menampilkan modal konfirmasi sebelum membuka pengaturan. Perubahan penerima, MAP, dan status yang tidak memerlukan transaksi langsung disimpan ke spreadsheet; bila slot belum memiliki catatan MAP, orang MAP diawali dari penerima antrian dan hanya tersimpan setelah dipilih.
+- **Pengumuman WhatsApp**: Teks daftar antrian dapat diperiksa dan diedit pada modal dengan pratinjau langsung sebelum disalin. Nama hari pada jadwal mengikuti tanggal batch; tampilan jadwal tidak menyertakan jam.
+- **Konfirmasi pengambilan dan pembayaran (`confirmPickupAndPayment`)**: Mencatat pembeli/pengambil, metode bayar, transaksi, serta perubahan stok dan riwayat pembelian. Perubahan status menjadi **SUDAH_DIAMBIL** dari pengaturan massal memakai modal **Konfirmasi Pengambilan & Pembayaran** yang sama; transaksi dan status baru dicatat setelah dikonfirmasi.
 - **Harga dan kuota**: Pengurus dapat mengelola nilai konfigurasi aplikasi. Periksa nilai yang tampil sebelum mencatat transaksi.
 - Aksi batal/lewat mengubah status slot; sistem tidak otomatis mengisi slot itu dengan anggota cadangan.
 - Catatan “Kirim ke MAP” memungkinkan admin memilih anggota koperasi berdasarkan nama/NIK, lalu menyimpan ID anggota terpilih dan snapshot namanya sebagai metadata slot antrian di spreadsheet. NIK tetap berasal dari anggota penerima dan hanya ditampilkan pada UI admin. Belum ada pengiriman melalui API MAP eksternal.
@@ -357,4 +359,3 @@ kdmp-gas-lpg/
 2. Pemilihan antrian berdasarkan riwayat pembelian anggota dan kuota batch.
 3. Penyesuaian urutan/penerima, konfirmasi pengambilan, dan pencatatan tindakan WhatsApp.
 4. Antarmuka Web App Google Apps Script dan integrasi melalui MCP Server.
-

@@ -9,6 +9,7 @@
   let replaceMemberId = "";
   let replaceCurrentMemberId = "";
   let bulkReplaceState = null;
+  let bulkPickupContext = null;
   let memberSort = { key: "nama_lengkap", direction: 1 };
   let reportSort = { key: "priority", direction: 1 };
   let selectedBatchId = "";
@@ -241,11 +242,9 @@
 
     const cooperativeName = appSettings.NAMA_KOPERASI || "Koperasi Desa Merah Putih (KDMP) Desa Gulun";
     const publicCumulativeVisibility = String(appSettings.TAMPILKAN_TOTAL_KUMULATIF).toLowerCase() === "true";
-    const cumulativeVisibility = isAdmin || publicCumulativeVisibility;
     const cumulativeVisibilityInput = document.getElementById("setting-cumulative-visibility");
-    const cumulativeColumn = document.getElementById("report-col-cumulative");
     if (cumulativeVisibilityInput) cumulativeVisibilityInput.value = publicCumulativeVisibility ? "true" : "false";
-    if (cumulativeColumn) cumulativeColumn.style.display = cumulativeVisibility ? "" : "none";
+    updateCumulativeReportColumnVisibility();
     if (typeof renderReportTable === "function" && Array.isArray(allMembersCache) && allMembersCache.length) {
       renderReportTable(allMembersCache);
     }
@@ -406,6 +405,119 @@
       .saveCumulativeVisibilitySetting(input.value, getAdminToken());
   }
 
+  function updateDatabaseRestoreButton() {
+    const fileInput = document.getElementById("database-restore-file");
+    const button = document.getElementById("database-restore-button");
+    if (button) button.disabled = !isAdmin || !fileInput || !fileInput.files || !fileInput.files.length;
+  }
+
+  function setDatabaseBackupStatus(message, isError) {
+    const status = document.getElementById("database-backup-status");
+    if (!status) return;
+    status.textContent = message;
+    status.style.color = isError ? "var(--danger)" : "var(--text-muted)";
+  }
+
+  function downloadDatabaseBackup() {
+    if (!isAdmin || !getAdminToken()) {
+      showToast("Login admin diperlukan untuk membuat backup.", true);
+      return;
+    }
+    const button = document.getElementById("database-backup-button");
+    button.disabled = true;
+    setDatabaseBackupStatus("Menyiapkan backup database...", false);
+    appScript.run
+      .withSuccessHandler(function (backup) {
+        button.disabled = false;
+        if (!backup || !backup.sheets || !backup.fileName) {
+          setDatabaseBackupStatus("Server tidak mengembalikan data backup yang valid.", true);
+          showToast("Backup gagal dibuat.", true);
+          return;
+        }
+        const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = backup.fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+        setDatabaseBackupStatus("Backup berhasil diunduh: " + backup.fileName, false);
+        showToast("Backup JSON berhasil dibuat.");
+      })
+      .withFailureHandler(function (error) {
+        button.disabled = false;
+        if (handleAdminRequestError(error)) return;
+        const message = error && error.message ? error.message : "Backup database gagal dibuat.";
+        setDatabaseBackupStatus(message, true);
+        showToast(message, true);
+      })
+      .createDatabaseBackup(getAdminToken());
+  }
+
+  function restoreDatabaseBackupFromFile() {
+    if (!isAdmin || !getAdminToken()) {
+      showToast("Login admin diperlukan untuk memulihkan backup.", true);
+      return;
+    }
+    const fileInput = document.getElementById("database-restore-file");
+    const button = document.getElementById("database-restore-button");
+    const file = fileInput && fileInput.files && fileInput.files[0];
+    if (!file) {
+      showToast("Pilih file backup JSON terlebih dahulu.", true);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function () {
+      const backupJson = String(reader.result || "");
+      try {
+        JSON.parse(backupJson);
+      } catch (error) {
+        setDatabaseBackupStatus("File bukan JSON yang valid.", true);
+        showToast("File backup bukan JSON yang valid.", true);
+        return;
+      }
+      if (!window.confirm(
+        "Restore akan mengganti isi lima sheet aplikasi (ANGGOTA, BATCH_PENGIRIMAN, ANTRIAN_DISTRIBUSI, TRANSAKSI_PENJUALAN, PENGATURAN) dengan isi file " +
+        file.name + ". Sheet lain tidak diubah. Pastikan file benar sebelum melanjutkan."
+      )) return;
+
+      button.disabled = true;
+      setDatabaseBackupStatus("Memvalidasi dan memulihkan data...", false);
+      appScript.run
+        .withSuccessHandler(function (result) {
+          button.disabled = false;
+          if (!result || !result.success) {
+            const message = result && result.message ? result.message : "Restore database gagal.";
+            setDatabaseBackupStatus(message, true);
+            showToast(message, true);
+            updateDatabaseRestoreButton();
+            return;
+          }
+          localStorage.removeItem(SETTINGS_CACHE_KEY);
+          setDatabaseBackupStatus(result.message + " Memuat ulang aplikasi...", false);
+          showToast(result.message || "Restore berhasil.");
+          window.setTimeout(function () { window.location.reload(); }, 800);
+        })
+        .withFailureHandler(function (error) {
+          button.disabled = false;
+          if (handleAdminRequestError(error)) return;
+          const message = error && error.message ? error.message : "Restore database gagal.";
+          setDatabaseBackupStatus(message, true);
+          showToast(message, true);
+          updateDatabaseRestoreButton();
+        })
+        .restoreDatabaseBackup(backupJson, getAdminToken());
+    };
+    reader.onerror = function () {
+      setDatabaseBackupStatus("File backup tidak dapat dibaca oleh browser.", true);
+      showToast("File backup tidak dapat dibaca oleh browser.", true);
+    };
+    reader.readAsText(file);
+  }
+
   // ==========================================
   // AUTENTIKASI ADMIN & SESSI PENGURUS
   // ==========================================
@@ -465,6 +577,8 @@
         switchTab("tab-public-home");
       }
     }
+    updateCumulativeReportColumnVisibility();
+    updateDatabaseRestoreButton();
     // Setelah update auth, render ulang tabel laporan jika ada cache
     if (allMembersCache.length > 0) renderReportTable(allMembersCache);
   }
@@ -616,6 +730,12 @@
   // Cache semua batch untuk dropdown filter publik
   var allBatchesCache = [];
 
+  function getBatchScheduleLabel(batch) {
+    if (!batch) return "-";
+    const date = batch.tgl_jadwal || "-";
+    return batch.hari && batch.hari !== "-" ? batch.hari + ", " + date : date;
+  }
+
   function loadPublicData() {
     appScript.run
       .withSuccessHandler(function (summary) {
@@ -630,11 +750,11 @@
 
           var latestBatch = summary.recentBatches[0];
           document.getElementById("public-stat-batch-date").textContent = latestBatch.tgl_jadwal;
-          document.getElementById("public-stat-batch-time").textContent = latestBatch.hari + ", " + latestBatch.waktu_kirim;
+          document.getElementById("public-stat-batch-day").textContent = latestBatch.hari;
           document.getElementById("public-stat-batch-stock").textContent = latestBatch.sisa_stok + " Tabung";
           document.getElementById("public-stat-batch-progress").textContent = "Terambil: " + latestBatch.jumlah_terambil + " / " + latestBatch.jumlah_stok;
           document.getElementById("public-batch-caption").textContent =
-            "Batch: " + latestBatch.id_batch + " \u2022 Jadwal: " + latestBatch.tgl_jadwal + " (" + latestBatch.waktu_kirim + ")";
+            "Batch: " + latestBatch.id_batch + " \u2022 Jadwal: " + getBatchScheduleLabel(latestBatch);
 
           // Jika dropdown sudah ada nilai terpilih, gunakan itu; jika tidak, gunakan batch terbaru
           var filterEl = document.getElementById("public-batch-filter");
@@ -642,6 +762,7 @@
           loadPublicQueue(batchToLoad);
         } else {
           document.getElementById("public-stat-batch-date").textContent = "Belum Ada";
+          document.getElementById("public-stat-batch-day").textContent = "Belum ada jadwal";
           document.getElementById("public-stat-batch-stock").textContent = "0 Tabung";
           document.getElementById("public-batch-caption").textContent = "Belum ada jadwal batch pengiriman aktif.";
           var filterEl = document.getElementById("public-batch-filter");
@@ -665,7 +786,7 @@
     batches.forEach(function (b, idx) {
       var opt = document.createElement("option");
       opt.value = b.id_batch;
-      var label = "\uD83D\uDCC5 " + b.tgl_jadwal + " (" + b.hari + ", " + b.waktu_kirim + ")";
+      var label = "\uD83D\uDCC5 " + getBatchScheduleLabel(b);
       if (idx === 0) label += " — Terbaru";
       var done = parseInt(b.jumlah_terambil) || 0;
       var total = parseInt(b.jumlah_stok) || 25;
@@ -685,11 +806,11 @@
     var selected = allBatchesCache.find(function (b) { return b.id_batch === batchId; });
     if (selected) {
       document.getElementById("public-stat-batch-date").textContent = selected.tgl_jadwal;
-      document.getElementById("public-stat-batch-time").textContent = selected.hari + ", " + selected.waktu_kirim;
+      document.getElementById("public-stat-batch-day").textContent = selected.hari;
       document.getElementById("public-stat-batch-stock").textContent = selected.sisa_stok + " Tabung";
       document.getElementById("public-stat-batch-progress").textContent = "Terambil: " + selected.jumlah_terambil + " / " + selected.jumlah_stok;
       document.getElementById("public-batch-caption").textContent =
-        "Batch: " + selected.id_batch + " \u2022 Jadwal: " + selected.tgl_jadwal + " (" + selected.waktu_kirim + ")";
+        "Batch: " + selected.id_batch + " \u2022 Jadwal: " + getBatchScheduleLabel(selected);
     }
 
     // Reset search lalu muat antrian batch yang dipilih
@@ -807,7 +928,7 @@
         currentBatches.forEach((b, index) => {
           const opt = document.createElement("option");
           opt.value = b.id_batch;
-          opt.textContent = `${b.id_batch} - ${b.tgl_jadwal} (${b.hari}, ${b.waktu_kirim}) [Stok: ${b.sisa_stok}/${b.jumlah_stok}]`;
+          opt.textContent = `${b.id_batch} - ${getBatchScheduleLabel(b)} [Stok: ${b.sisa_stok}/${b.jumlah_stok}]`;
           if (b.id_batch === previousBatchId || (!previousBatchId && index === 0)) opt.selected = true;
           select.appendChild(opt);
         });
@@ -844,7 +965,7 @@
     }
 
     card.style.display = "block";
-    document.getElementById("batch-title").textContent = `Batch Gas LPG: ${batch.tgl_jadwal} (${batch.hari}, ${batch.waktu_kirim})`;
+    document.getElementById("batch-title").textContent = `Batch Gas LPG: ${getBatchScheduleLabel(batch)}`;
     document.getElementById("batch-details").textContent = `ID: ${batch.id_batch} • Status: ${batch.status_batch}`;
     document.getElementById("batch-total-stok").textContent = batch.jumlah_stok + " Tabung";
     document.getElementById("batch-terambil").textContent = batch.jumlah_terambil + " Terambil";
@@ -915,7 +1036,7 @@
     grid.style.display = "grid";
 
     const batch = currentBatches.find(b => b.id_batch === selectedBatchId);
-    const batchDateStr = batch ? `${batch.tgl_jadwal} (${batch.waktu_kirim})` : "Jumat Sore";
+    const batchDateStr = batch ? getBatchScheduleLabel(batch) : "tanggal batch yang tertera";
 
     items.forEach(item => {
       const card = document.createElement("div");
@@ -1329,13 +1450,31 @@
   }
 
   // Kasir & Ambil Gas Modal
-  function openPickupModal(queueId, noUrut, memberName, rtRw) {
+  function openPickupModal(queueId, noUrut, memberName, rtRw, isBulkConfirmation) {
     document.getElementById("pickup-queue-id").value = queueId;
     document.getElementById("pickup-queue-no").textContent = "#" + noUrut;
     document.getElementById("pickup-member-name").textContent = memberName;
     document.getElementById("pickup-member-address").textContent = rtRw;
     document.getElementById("pickup-collector-name").value = memberName;
+    document.getElementById("modal-pickup").style.zIndex = isBulkConfirmation ? "1101" : "";
     openModal("modal-pickup");
+  }
+
+  function cancelPickupModal() {
+    closeModal("modal-pickup");
+    document.getElementById("modal-pickup").style.zIndex = "";
+    const context = bulkPickupContext;
+    if (!context || context.entry.pending) return;
+    bulkPickupContext = null;
+    context.entry.message = "Pengambilan dibatalkan; status belum berubah.";
+    context.entry.isError = false;
+    if (context.entry.statusSelect) context.entry.statusSelect.value = context.entry.currentStatus;
+    updateBulkQueueEntryControls(context.entry);
+    if (context.entry.rowStatus) {
+      context.entry.rowStatus.textContent = context.entry.message;
+      context.entry.rowStatus.classList.remove("is-error");
+    }
+    updateBulkReplaceSummary();
   }
 
   function submitPickup() {
@@ -1343,10 +1482,41 @@
     const method = document.getElementById("pickup-payment-method").value;
     const collector = document.getElementById("pickup-collector-name").value;
     const price = document.getElementById("pickup-price").value;
+    const submitButton = document.getElementById("pickup-submit-button");
+    const bulkContext = bulkPickupContext;
+    if (submitButton.disabled) return;
+    submitButton.disabled = true;
+    submitButton.textContent = "Menyimpan...";
+    if (bulkContext) {
+      bulkContext.entry.pending = true;
+      bulkContext.entry.message = "Mencatat pengambilan dan pembayaran...";
+      bulkContext.requestState.pending++;
+      updateBulkQueueEntryControls(bulkContext.entry);
+      if (bulkContext.entry.rowStatus) bulkContext.entry.rowStatus.textContent = bulkContext.entry.message;
+      updateBulkReplaceSummary();
+    }
 
     appScript.run
       .withSuccessHandler(function (res) {
+        submitButton.disabled = false;
+        submitButton.textContent = "✓ Serahkan Gas & Selesai";
+        if (!res || !res.success) {
+          const message = res && res.message ? res.message : "Transaksi pengambilan gagal dicatat.";
+          if (bulkContext) {
+            completeBulkQueueChange(bulkContext.requestState, bulkContext.entry, "newStatus", "SUDAH_DIAMBIL", null, bulkContext.entry.statusSelect, {
+              success: false,
+              message: message
+            });
+          }
+          showToast(message, true);
+          return;
+        }
         closeModal("modal-pickup");
+        document.getElementById("modal-pickup").style.zIndex = "";
+        if (bulkContext) {
+          bulkPickupContext = null;
+          completeBulkQueueChange(bulkContext.requestState, bulkContext.entry, "newStatus", "SUDAH_DIAMBIL", null, bulkContext.entry.statusSelect, res);
+        }
         showToast(res.message);
         loadBatches();
         loadDashboardData();
@@ -1354,7 +1524,16 @@
         loadPublicData();
       })
       .withFailureHandler(function (err) {
-        showToast(err.message, true);
+        submitButton.disabled = false;
+        submitButton.textContent = "✓ Serahkan Gas & Selesai";
+        const message = err && err.message ? err.message : "Transaksi pengambilan gagal dicatat.";
+        if (bulkContext) {
+          completeBulkQueueChange(bulkContext.requestState, bulkContext.entry, "newStatus", "SUDAH_DIAMBIL", null, bulkContext.entry.statusSelect, {
+            success: false,
+            message: message
+          });
+        }
+        if (!handleAdminRequestError(err)) showToast(message, true);
       })
       .confirmPickupAndPayment({
         queueId: queueId,
@@ -1474,7 +1653,7 @@
     input._memberComboState = state;
     if (initialMember) {
       input.value = formatReplacementMember(initialMember);
-      status.textContent = "Penerima saat ini: " + formatReplacementMember(initialMember) + (initialMember.rt_rw ? " • " + initialMember.rt_rw : "");
+      status.textContent = (settings.subject || "Penerima") + " saat ini: " + formatReplacementMember(initialMember) + (initialMember.rt_rw ? " • " + initialMember.rt_rw : "");
     }
 
     function closeList() {
@@ -1504,7 +1683,7 @@
       }
 
       state.options = allMembersCache.filter(function (member) {
-        if (member.status_aktif !== "AKTIF" || member.id_anggota === settings.excludeId) return false;
+        if ((!settings.includeInactive && member.status_aktif !== "AKTIF") || member.id_anggota === settings.excludeId) return false;
         const name = String(member.nama_lengkap || "").toLocaleLowerCase("id");
         const nik = String(member.no_ktp || "").toLocaleLowerCase("id");
         return !query || name.includes(query) || nik.includes(query);
@@ -1517,7 +1696,9 @@
       if (!state.options.length) {
         const empty = document.createElement("div");
         empty.className = "member-combobox-empty";
-        empty.textContent = allMembersCache.length ? "Tidak ada anggota aktif yang cocok." : "Data anggota belum dimuat.";
+        empty.textContent = allMembersCache.length
+          ? (settings.includeInactive ? "Tidak ada anggota yang cocok." : "Tidak ada anggota aktif yang cocok.")
+          : "Data anggota belum dimuat.";
         list.appendChild(empty);
       } else {
         state.options.forEach(function (member, index) {
@@ -1595,6 +1776,11 @@
       showToast("Batch ini belum memiliki antrian.", true);
       return;
     }
+    openModal("modal-bulk-replace-confirm");
+  }
+
+  function confirmOpenBulkReplaceModal() {
+    closeModal("modal-bulk-replace-confirm");
     if (bulkReplaceState && bulkReplaceState.batchId === selectedBatchId && bulkReplaceState.pending > 0) {
       bulkReplaceState.closeRequested = false;
     } else {
@@ -1617,12 +1803,20 @@
     const state = bulkReplaceState;
     if (!state) return;
     document.getElementById("bulk-replace-description").textContent =
-      "Batch " + state.batchId + ": pilih penerima baru per slot. Perubahan tersimpan otomatis setelah anggota dipilih.";
+      "Batch " + state.batchId + ": pilih penerima, orang MAP, atau status baru. Setiap perubahan langsung disimpan ke database.";
 
     currentQueue.forEach(function (item) {
       let entry = state.entries.get(item.id_antrian);
       if (!entry) {
-        entry = { queueId: item.id_antrian, currentMemberId: item.id_anggota_penerima, pending: false, changed: false, message: "Belum diubah." };
+        entry = {
+          queueId: item.id_antrian,
+          currentMemberId: item.id_anggota_penerima,
+          currentMapMemberId: item.map_anggota_id || "",
+          currentStatus: item.status_antrian || "MENUNGGU",
+          pending: false,
+          changed: false,
+          message: "Belum diubah."
+        };
         state.entries.set(item.id_antrian, entry);
       }
       const row = document.createElement("div");
@@ -1634,149 +1828,244 @@
       const current = document.createElement("div");
       current.className = "bulk-replace-current";
       current.textContent = item.nama_anggota_penerima + " • NIK: " + (item.no_ktp_penerima || "-");
+      entry.currentDisplay = current;
       slot.append(slotTitle, current);
 
-      const inputWrap = document.createElement("div");
-      inputWrap.className = "member-combobox";
-      inputWrap.style.width = "100%";
-      inputWrap.style.display = "block";
-      const input = document.createElement("input");
-      input.type = "text";
-      input.id = "bulk-replace-search-" + item.id_antrian;
-      input.className = "input-text";
-      input.style.width = "100%";
-      input.style.boxSizing = "border-box";
-      input.style.minWidth = "0";
-      input.setAttribute("role", "combobox");
-      input.setAttribute("aria-autocomplete", "list");
-      input.setAttribute("aria-expanded", "false");
-      input.setAttribute("aria-controls", input.id + "-options");
-      input.setAttribute("aria-activedescendant", "");
-      input.autocomplete = "off";
-      input.placeholder = item.status_antrian === "SUDAH_DIAMBIL" ? "Slot sudah diambil" : "Cari nama atau NIK anggota";
+      function createMemberControl(labelText, suffix, initialMemberId, fieldName, includeInactive) {
+        const control = document.createElement("div");
+        control.className = "bulk-replace-control";
+        const label = document.createElement("label");
+        label.className = "form-label";
+        label.textContent = labelText;
+        const combo = document.createElement("div");
+        combo.className = "member-combobox";
+        const input = document.createElement("input");
+        input.type = "text";
+        input.id = "bulk-" + suffix + "-search-" + item.id_antrian;
+        label.htmlFor = input.id;
+        input.className = "input-text";
+        input.style.width = "100%";
+        input.style.boxSizing = "border-box";
+        input.style.minWidth = "0";
+        input.setAttribute("role", "combobox");
+        input.setAttribute("aria-autocomplete", "list");
+        input.setAttribute("aria-expanded", "false");
+        input.setAttribute("aria-controls", input.id + "-options");
+        input.setAttribute("aria-activedescendant", "");
+        input.autocomplete = "off";
+        input.placeholder = "Cari nama atau NIK anggota";
+        const options = document.createElement("div");
+        options.id = input.id + "-options";
+        options.className = "member-combobox-options";
+        options.style.width = "100%";
+        options.setAttribute("role", "listbox");
+        options.hidden = true;
+        const comboStatus = document.createElement("div");
+        comboStatus.className = "member-combobox-status";
+        comboStatus.setAttribute("aria-live", "polite");
+        comboStatus.textContent = "Pilih anggota dari saran.";
+        combo.append(input, options);
+        control.append(label, combo, comboStatus);
+        const memberCombo = initializeMemberCombobox(input, options, comboStatus, {
+          initialMemberId: initialMemberId,
+          includeInactive: includeInactive,
+          subject: fieldName === "newMapMemberId" ? "MAP" : "Penerima",
+          excludeId: fieldName === "newMemberId" ? initialMemberId : "",
+          onSelect: function (member) {
+            const currentId = fieldName === "newMemberId" ? entry.currentMemberId : entry.currentMapMemberId;
+            if (member && String(member.id_anggota) !== String(currentId || "")) {
+              saveBulkQueueChange(entry, fieldName, member.id_anggota, member, input);
+            }
+          }
+        });
+        return { control: control, input: input, combo: memberCombo };
+      }
 
-      const bulkDatalistId = "bulk-replace-datalist-" + item.id_antrian;
-      const datalist = document.createElement("datalist");
-      datalist.id = bulkDatalistId;
-      const options = document.createElement("div");
-      options.id = input.id + "-options";
-      options.className = "member-combobox-options";
-      options.style.width = "100%";
-      options.setAttribute("role", "listbox");
-      options.hidden = true;
-
-      allMembersCache.filter(function (member) {
-        return member.status_aktif === "AKTIF" && String(member.id_anggota) !== String(item.id_anggota_penerima || "");
-      }).forEach(function (member) {
+      const recipientField = createMemberControl(
+        "Ganti Penerima",
+        "replace",
+        entry.currentMemberId,
+        "newMemberId",
+        false
+      );
+      const mapField = createMemberControl(
+        "Orang MAP",
+        "map",
+        entry.currentMapMemberId || item.id_anggota_penerima,
+        "newMapMemberId",
+        true
+      );
+      if (!entry.currentMapMemberId) {
+        const mapStatus = mapField.control.querySelector(".member-combobox-status");
+        if (mapStatus) mapStatus.textContent = "Pilihan awal mengikuti penerima antrian; pilih anggota untuk menyimpan data MAP.";
+      }
+      const statusControl = document.createElement("div");
+      statusControl.className = "bulk-replace-control";
+      const statusLabel = document.createElement("label");
+      statusLabel.className = "form-label";
+      statusLabel.htmlFor = "bulk-status-" + item.id_antrian;
+      statusLabel.textContent = "Status Pengambilan";
+      const statusSelect = document.createElement("select");
+      statusSelect.id = statusLabel.htmlFor;
+      statusSelect.className = "select-control";
+      statusSelect.style.width = "100%";
+      const statuses = ["MENUNGGU", "BATAL_LEWAT", "SUDAH_DIAMBIL", "DIGANTIKAN"];
+      if (entry.currentStatus && statuses.indexOf(entry.currentStatus) === -1) statuses.push(entry.currentStatus);
+      statuses.forEach(function (value) {
         const option = document.createElement("option");
-        const label = (member.nama_lengkap || "-") + " — NIK: " + (String(member.no_ktp || "").trim() || "Belum tersedia") + (member.rt_rw ? " • " + member.rt_rw : "");
-        option.value = label;
-        option.dataset.memberId = member.id_anggota;
-        datalist.appendChild(option);
+        option.value = value;
+        option.textContent = value.replace(/_/g, " ");
+        option.disabled = value === "DIGANTIKAN" && entry.currentStatus !== "DIGANTIKAN";
+        statusSelect.appendChild(option);
       });
-      input.setAttribute("list", bulkDatalistId);
-
-      const status = document.createElement("div");
-      status.className = "bulk-replace-row-status" + (entry.isError ? " is-error" : "");
-      status.setAttribute("aria-live", "polite");
-      status.textContent = item.status_antrian === "SUDAH_DIAMBIL" ? "Tidak dapat diubah: gas sudah diambil." : entry.message;
-      inputWrap.append(input, datalist, options);
-      row.append(slot, inputWrap, status);
+      statusSelect.value = entry.currentStatus;
+      statusControl.append(statusLabel, statusSelect);
+      const rowStatus = document.createElement("div");
+      rowStatus.className = "bulk-replace-row-status" + (entry.isError ? " is-error" : "");
+      rowStatus.setAttribute("aria-live", "polite");
+      rowStatus.textContent = entry.message;
+      row.append(slot, recipientField.control, mapField.control, statusControl, rowStatus);
       list.appendChild(row);
 
-      input.addEventListener("change", function () {
-        const typed = input.value.trim();
-        if (!typed) return;
-        const matched = allMembersCache.find(function (member) {
-          if (member.status_aktif !== "AKTIF" || String(member.id_anggota) === String(item.id_anggota_penerima || "")) return false;
-          const label = (member.nama_lengkap || "-") + " — NIK: " + (String(member.no_ktp || "").trim() || "Belum tersedia") + (member.rt_rw ? " • " + member.rt_rw : "");
-          return label.toLowerCase() === typed.toLowerCase() || String(member.no_ktp || "").trim().toLowerCase() === typed.toLowerCase() || String(member.nama_lengkap || "").toLowerCase() === typed.toLowerCase();
-        });
-        if (!matched) {
-          status.textContent = "Pilih anggota aktif dari daftar saran.";
-          status.classList.add("is-error");
+      entry.controls = [recipientField.input, mapField.input, statusSelect];
+      entry.nonMapControls = [recipientField.input, statusSelect];
+      entry.recipientInput = recipientField.input;
+      entry.mapInput = mapField.input;
+      entry.statusSelect = statusSelect;
+      entry.rowStatus = rowStatus;
+      entry.recipientCombo = recipientField.combo;
+      entry.mapCombo = mapField.combo;
+      statusSelect.addEventListener("change", function () {
+        const nextStatus = statusSelect.value;
+        if (nextStatus === entry.currentStatus) return;
+        if (nextStatus === "SUDAH_DIAMBIL") {
+          statusSelect.value = entry.currentStatus;
+          openBulkPickupModal(entry);
           return;
         }
-        status.classList.remove("is-error");
-        saveBulkReplacement(entry, matched, status, input);
+        saveBulkQueueChange(entry, "newStatus", nextStatus, null, statusSelect);
       });
-
-      if (item.status_antrian === "SUDAH_DIAMBIL") {
-        input.disabled = true;
-        return;
-      }
-      const combo = initializeMemberCombobox(input, options, status, {
-        excludeId: item.id_anggota_penerima,
-        initialMemberId: entry.currentMemberId,
-        onSelect: function (member) {
-          if (member) saveBulkReplacement(entry, member, status, input);
-        }
-      });
-      entry.combo = combo;
-      entry.statusElement = status;
-      entry.input = input;
-      if (entry.pending) {
-        input.disabled = true;
-        status.textContent = "Menyimpan perubahan...";
-      }
+      updateBulkQueueEntryControls(entry);
     });
     updateBulkReplaceSummary();
   }
 
-  function saveBulkReplacement(entry, member, status, input) {
-    if (!bulkReplaceState || entry.pending || !member || member.id_anggota === entry.currentMemberId) return;
+  function openBulkPickupModal(entry) {
+    const item = currentQueue.find(function (queueItem) { return queueItem.id_antrian === entry.queueId; });
+    if (!item || !bulkReplaceState) {
+      showToast("Data antrian tidak ditemukan. Segarkan daftar antrian lalu coba lagi.", true);
+      return;
+    }
+    bulkPickupContext = {
+      entry: entry,
+      requestState: bulkReplaceState
+    };
+    openPickupModal(item.id_antrian, item.no_urut, item.nama_anggota_penerima, item.rt_rw_penerima, true);
+  }
+
+  function updateBulkQueueEntryControls(entry) {
+    const taken = entry.currentStatus === "SUDAH_DIAMBIL";
+    (entry.controls || []).forEach(function (control) {
+      control.disabled = entry.pending || (taken && control !== entry.mapInput);
+    });
+  }
+
+  function saveBulkQueueChange(entry, fieldName, value, member, input) {
+    if (!bulkReplaceState || entry.pending) return;
+    const unchanged = fieldName === "newMemberId"
+      ? String(value) === String(entry.currentMemberId)
+      : fieldName === "newMapMemberId"
+        ? String(value) === String(entry.currentMapMemberId)
+        : String(value) === String(entry.currentStatus);
+    if (unchanged) return;
+
     entry.pending = true;
     entry.isError = false;
     entry.message = "Menyimpan perubahan...";
     bulkReplaceState.pending++;
-    input.disabled = true;
-    status.classList.remove("is-error");
-    status.textContent = entry.message;
+    updateBulkQueueEntryControls(entry);
+    if (entry.rowStatus) entry.rowStatus.textContent = entry.message;
     updateBulkReplaceSummary();
     const requestState = bulkReplaceState;
+    const mapping = { queueId: entry.queueId };
+    mapping[fieldName] = value;
     appScript.run
       .withSuccessHandler(function (response) {
         const result = response && response.results && response.results[0];
-        completeBulkReplacement(requestState, entry, result || { success: false, message: "Server tidak mengembalikan hasil pemetaan." }, member, input, status);
+        completeBulkQueueChange(requestState, entry, fieldName, value, member, input, result || { success: false, message: "Server tidak mengembalikan hasil perubahan." });
       })
       .withFailureHandler(function (error) {
         if (handleAdminRequestError(error)) {
-          completeBulkReplacement(requestState, entry, { success: false, message: "Sesi admin berakhir." }, member, input, status);
+          completeBulkQueueChange(requestState, entry, fieldName, value, member, input, { success: false, message: "Sesi admin berakhir." });
           return;
         }
-        completeBulkReplacement(requestState, entry, { success: false, message: error && error.message ? error.message : "Penyimpanan gagal." }, member, input, status);
+        completeBulkQueueChange(requestState, entry, fieldName, value, member, input, { success: false, message: error && error.message ? error.message : "Penyimpanan gagal." });
       })
-      .replaceQueueMembersBulk(requestState.batchId, [{ queueId: entry.queueId, newMemberId: member.id_anggota }], "Penggantian penerima masal", getAdminToken());
+      .updateQueueItemsBulk(requestState.batchId, [mapping], getAdminToken());
   }
 
-  function completeBulkReplacement(requestState, entry, result, member, input, status) {
+  function completeBulkQueueChange(requestState, entry, fieldName, value, member, input, result) {
     entry.pending = false;
     requestState.pending = Math.max(0, requestState.pending - 1);
     if (result.success) {
-      entry.currentMemberId = member.id_anggota;
+      if (fieldName === "newMemberId") {
+        entry.currentMemberId = member.id_anggota;
+        entry.currentStatus = "DIGANTIKAN";
+        entry.recipientCombo.settings.excludeId = member.id_anggota;
+        const queueItem = currentQueue.find(function (item) { return item.id_antrian === entry.queueId; });
+        if (queueItem) {
+          queueItem.id_anggota_penerima = member.id_anggota;
+          queueItem.nama_anggota_penerima = member.nama_lengkap;
+          queueItem.no_ktp_penerima = member.no_ktp || "";
+          queueItem.rt_rw_penerima = member.rt_rw || "-";
+          queueItem.is_replaced = queueItem.id_anggota_asli !== member.id_anggota;
+          queueItem.status_antrian = "DIGANTIKAN";
+        }
+        if (entry.currentDisplay) {
+          entry.currentDisplay.textContent = member.nama_lengkap + " • NIK: " + (member.no_ktp || "-");
+        }
+        if (entry.statusSelect) {
+          const replacedOption = entry.statusSelect.querySelector('option[value="DIGANTIKAN"]');
+          if (replacedOption) replacedOption.disabled = false;
+          entry.statusSelect.value = "DIGANTIKAN";
+        }
+      } else if (fieldName === "newMapMemberId") {
+        entry.currentMapMemberId = member.id_anggota;
+        const queueItem = currentQueue.find(function (item) { return item.id_antrian === entry.queueId; });
+        if (queueItem) {
+          queueItem.map_anggota_id = member.id_anggota;
+          queueItem.map_atas_nama = member.nama_lengkap;
+          queueItem.map_nama_snapshot = member.nama_lengkap;
+        }
+      } else {
+        entry.currentStatus = value;
+        const queueItem = currentQueue.find(function (item) { return item.id_antrian === entry.queueId; });
+        if (queueItem) queueItem.status_antrian = value;
+      }
       entry.changed = true;
       entry.isError = false;
-      entry.message = "Tersimpan sebagai " + member.nama_lengkap + ".";
+      entry.message = result.message || "Perubahan berhasil disimpan.";
       requestState.changed = true;
-      const queueItem = currentQueue.find(function (item) { return item.id_antrian === entry.queueId; });
-      if (queueItem) {
-        queueItem.id_anggota_penerima = member.id_anggota;
-        queueItem.nama_anggota_penerima = member.nama_lengkap;
-        queueItem.no_ktp_penerima = member.no_ktp || "";
-        queueItem.rt_rw_penerima = member.rt_rw || "-";
-        queueItem.is_replaced = queueItem.id_anggota_asli !== member.id_anggota;
-        queueItem.status_antrian = "DIGANTIKAN";
-      }
-      if (entry.combo) entry.combo.settings.excludeId = member.id_anggota;
     } else {
       entry.isError = true;
       entry.message = result.message || "Penyimpanan gagal.";
+      if (fieldName === "newMemberId" && input._memberComboState) {
+        input._memberComboState.selectedId = entry.currentMemberId;
+        const currentMember = allMembersCache.find(function (item) { return String(item.id_anggota) === String(entry.currentMemberId); });
+        input.value = currentMember ? formatReplacementMember(currentMember) : "";
+      } else if (fieldName === "newMapMemberId" && input._memberComboState) {
+        input._memberComboState.selectedId = entry.currentMapMemberId;
+        const currentMapMember = allMembersCache.find(function (item) { return String(item.id_anggota) === String(entry.currentMapMemberId); });
+        input.value = currentMapMember ? formatReplacementMember(currentMapMember) : "";
+      } else if (fieldName === "newStatus") {
+        input.value = entry.currentStatus;
+      }
     }
-    const activeInput = entry.input || input;
-    const activeStatus = entry.statusElement || status;
-    activeInput.disabled = false;
-    activeStatus.textContent = entry.message;
-    activeStatus.classList.toggle("is-error", entry.isError);
+    updateBulkQueueEntryControls(entry);
+    if (entry.rowStatus) {
+      entry.rowStatus.textContent = entry.message;
+      entry.rowStatus.classList.toggle("is-error", entry.isError);
+    }
     updateBulkReplaceSummary();
     if (requestState.closeRequested && requestState.pending === 0) finishBulkReplaceModal(requestState);
   }
@@ -1822,11 +2111,19 @@
       return;
     }
 
+    document.getElementById("queue-wa-text").value = buildQueueAnnouncementText();
+    updateQueueAnnouncementPreview();
+    openModal("modal-copy-queue-wa");
+  }
+
+  document.getElementById("queue-wa-text").addEventListener("input", updateQueueAnnouncementPreview);
+
+  function buildQueueAnnouncementText() {
     var batch = currentBatches.find(function (b) { return b.id_batch === selectedBatchId; });
     var hargaFmt = getHargaFormatted();
     var kuota = appSettings.KUOTA_PER_BATCH || "25";
     var text = "*DAFTAR ANTRIAN GAS LPG 3KG " + appSettings.NAMA_KOPERASI.toUpperCase() + "*\n";
-    text += "\u{1F4C5} Jadwal: " + (batch ? batch.tgl_jadwal : "-") + " (Jumat Sore, 16:00 WIB)\n";
+    text += "\u{1F4C5} Jadwal: " + getBatchScheduleLabel(batch) + "\n";
     text += "\u{1F4E6} Kuota: " + kuota + " Tabung\n";
     text += "--------------------------------------\n";
 
@@ -1839,8 +2136,56 @@
     text += "_Harap membawa tabung kosong dan uang pas " + hargaFmt + "._\n";
     text += "_" + appSettings.NAMA_KOPERASI + "_";
 
-    navigator.clipboard.writeText(text).then(function () {
-      showToast("Daftar antrian berhasil disalin! Silakan paste di WhatsApp.");
+    return text;
+  }
+
+  function updateQueueAnnouncementPreview() {
+    const textarea = document.getElementById("queue-wa-text");
+    const preview = document.getElementById("queue-wa-preview");
+    if (!textarea || !preview) return;
+
+    const formattingPattern = /```([^`]+)```|\*([^*\n]+)\*|_([^_\n]+)_|~([^~\n]+)~/g;
+    const fragment = document.createDocumentFragment();
+    let lastIndex = 0;
+    let match;
+
+    while ((match = formattingPattern.exec(textarea.value)) !== null) {
+      if (match.index > lastIndex) {
+        fragment.appendChild(document.createTextNode(textarea.value.slice(lastIndex, match.index)));
+      }
+
+      const elementName = match[1] !== undefined
+        ? "code"
+        : match[2] !== undefined
+          ? "strong"
+          : match[3] !== undefined
+            ? "em"
+            : "del";
+      const formatted = document.createElement(elementName);
+      formatted.textContent = match[1] !== undefined ? match[1] : match[2] || match[3] || match[4];
+      fragment.appendChild(formatted);
+      lastIndex = formattingPattern.lastIndex;
+    }
+
+    if (lastIndex < textarea.value.length) {
+      fragment.appendChild(document.createTextNode(textarea.value.slice(lastIndex)));
+    }
+    preview.replaceChildren(fragment);
+  }
+
+  function copyEditedQueueAnnouncement() {
+    const textarea = document.getElementById("queue-wa-text");
+    if (!textarea || !navigator.clipboard || !navigator.clipboard.writeText) {
+      showToast("Fitur salin tidak tersedia di browser ini.", true);
+      return;
+    }
+
+    navigator.clipboard.writeText(textarea.value).then(function () {
+      closeModal("modal-copy-queue-wa");
+      showToast("Teks pengumuman berhasil disalin. Silakan tempel di WhatsApp.");
+    }).catch(function (error) {
+      console.error("Gagal menyalin teks pengumuman:", error);
+      showToast("Teks tidak dapat disalin. Periksa izin clipboard browser lalu coba lagi.", true);
     });
   }
 
@@ -1883,6 +2228,15 @@
 
   function reportColumnCount() {
     return (isAdmin ? 7 : 6) + (isCumulativeReportVisible() ? 1 : 0);
+  }
+
+  function updateCumulativeReportColumnVisibility() {
+    const cumulativeColumn = document.getElementById("report-col-cumulative");
+    if (cumulativeColumn) {
+      cumulativeColumn.style.display = isCumulativeReportVisible() ? "table-cell" : "none";
+    }
+    const placeholder = document.querySelector("#report-table-body td[colspan]");
+    if (placeholder) placeholder.colSpan = reportColumnCount();
   }
 
   function isCumulativeReportVisible() {

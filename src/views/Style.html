@@ -602,6 +602,64 @@
     flex-direction: column;
   }
 
+  .wa-copy-dialog {
+    width: min(1440px, calc(100vw - 48px));
+    max-width: 1440px;
+    max-height: calc(100vh - 32px);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .wa-copy-body {
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .wa-copy-content {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  .wa-copy-content .form-group {
+    min-width: 0;
+    margin-bottom: 0;
+  }
+
+  .wa-copy-textarea,
+  .wa-copy-preview {
+    display: block;
+    width: 100%;
+    min-height: 320px;
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: #F8FAFC;
+    color: var(--text-main);
+    font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+
+  .wa-copy-textarea {
+    resize: vertical;
+  }
+
+  .wa-copy-preview {
+    margin: 0;
+    overflow: auto;
+  }
+
+  .wa-copy-preview strong {
+    font-weight: 800;
+  }
+
+  .wa-copy-preview code {
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: #E2E8F0;
+  }
+
   .modal-dialog.bulk-replace-dialog {
     width: min(1100px, calc(100vw - 32px));
     max-width: 1100px;
@@ -619,13 +677,22 @@
 
   .bulk-replace-row {
     display: grid;
-    grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.2fr);
+    grid-template-columns: minmax(140px, 0.75fr) repeat(3, minmax(180px, 1fr));
     gap: 12px;
     align-items: start;
     padding: 12px;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
     background: var(--bg-surface);
+  }
+
+  .bulk-replace-control {
+    min-width: 0;
+  }
+
+  .bulk-replace-control .form-label {
+    display: block;
+    margin-bottom: 5px;
   }
 
   .bulk-replace-slot {
@@ -643,7 +710,7 @@
 
   .bulk-replace-row-status {
     grid-column: 1 / -1;
-    margin-top: -6px;
+    margin-top: -2px;
     color: var(--text-muted);
     font-size: 12px;
   }
@@ -659,6 +726,21 @@
   }
 
   @media (max-width: 600px) {
+    .wa-copy-dialog {
+      width: 100%;
+      max-width: none;
+      max-height: calc(100vh - 20px);
+    }
+
+    .wa-copy-content {
+      grid-template-columns: 1fr;
+    }
+
+    .wa-copy-textarea,
+    .wa-copy-preview {
+      min-height: 220px;
+    }
+
     .modal-dialog.bulk-replace-dialog {
       width: 100%;
       max-width: none;
@@ -828,6 +910,7 @@
 
   .modal-backdrop.show .modal-dialog {
     transform: translateY(0);
+    max-width: 90%;
   }
 
   .modal-header {

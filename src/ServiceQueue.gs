@@ -25,7 +25,7 @@ function getAllBatches() {
     batches.push({
       id_batch: String(row[0] || ""),
       tgl_jadwal: row[1] ? Utilities.formatDate(new Date(row[1]), "Asia/Jakarta", "yyyy-MM-dd") : "-",
-      hari: String(row[2] || (row[1] ? getIndonesianDayName(row[1]) : "-")),
+      hari: row[1] ? getIndonesianDayName(row[1]) : "-",
       waktu_kirim: String(row[3] || "16:00 WIB"),
       jumlah_stok: Number(row[4] || 25),
       jumlah_terambil: Number(row[5] || 0),
@@ -587,6 +587,161 @@ function replaceQueueMembersBulk(batchId, mappings, reason, sessionToken) {
   return {
     success: true,
     message: "Pemetaan penerima batch selesai diproses.",
+    results: results
+  };
+}
+
+function updateQueueItemsBulk(batchId, mappings, sessionToken) {
+  if (!validateSession(sessionToken)) {
+    throw new Error("Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.");
+  }
+  return updateQueueItemsBulk_(batchId, mappings, sessionToken);
+}
+
+function updateQueueItemsBulk_(batchId, mappings, sessionToken) {
+  const cleanBatchId = String(batchId || "").trim();
+  if (!cleanBatchId) throw new Error("Pilih batch terlebih dahulu.");
+  if (!Array.isArray(mappings) || mappings.length === 0) {
+    throw new Error("Tidak ada perubahan antrian yang dikirim.");
+  }
+
+  const db = getDatabase();
+  const queueSheet = db.getSheetByName(CONFIG.SHEETS.ANTRIAN_DISTRIBUSI);
+  const queueValues = queueSheet.getDataRange().getValues();
+  const queueById = new Map();
+  for (let i = 1; i < queueValues.length; i++) {
+    if (String(queueValues[i][1] || "").trim() === cleanBatchId) {
+      queueById.set(String(queueValues[i][0] || "").trim(), {
+        row: queueValues[i],
+        rowIndex: i + 1
+      });
+    }
+  }
+
+  const members = getAllMembers_();
+  const membersById = new Map(members.map(function (member) {
+    return [String(member.id_anggota), member];
+  }));
+  const transactionSheet = db.getSheetByName(CONFIG.SHEETS.TRANSAKSI_PENJUALAN);
+  const transactionValues = transactionSheet ? transactionSheet.getDataRange().getValues() : [];
+  const transactionQueueIds = new Set(transactionValues.slice(1).map(function (row) {
+    return String(row[1] || "").trim();
+  }).filter(Boolean));
+  const mapColumns = getQueueMapColumns_(queueSheet, false);
+  const seenQueueIds = new Set();
+  const allowedStatuses = ["MENUNGGU", "BATAL_LEWAT"];
+
+  const results = mappings.map(function (mapping) {
+    if (!mapping || typeof mapping !== "object" || Array.isArray(mapping)) {
+      return { queueId: "", success: false, message: "Format perubahan antrian tidak valid." };
+    }
+    const queueId = String(mapping && mapping.queueId || "").trim();
+    const target = queueById.get(queueId);
+    if (!queueId || !target) {
+      return { queueId: queueId, success: false, message: "Slot tidak ditemukan pada batch ini." };
+    }
+    if (seenQueueIds.has(queueId)) {
+      return { queueId: queueId, success: false, message: "Slot duplikat dalam permintaan." };
+    }
+    seenQueueIds.add(queueId);
+
+    const row = target.row;
+    const currentStatus = String(row[5] || "MENUNGGU");
+    const hasNewMember = Object.prototype.hasOwnProperty.call(mapping, "newMemberId");
+    const hasNewMapMember = Object.prototype.hasOwnProperty.call(mapping, "newMapMemberId");
+    const hasNewStatus = Object.prototype.hasOwnProperty.call(mapping, "newStatus");
+    if (!hasNewMember && !hasNewMapMember && !hasNewStatus) {
+      return { queueId: queueId, success: false, message: "Tidak ada kolom yang dipilih untuk diubah." };
+    }
+
+    const newMemberId = hasNewMember ? String(mapping.newMemberId || "").trim() : "";
+    const newMapMemberId = hasNewMapMember ? String(mapping.newMapMemberId || "").trim() : "";
+    const newStatus = hasNewStatus ? String(mapping.newStatus || "").trim().toUpperCase() : "";
+    const currentMemberId = String(row[4] || "").trim();
+    const currentMapMemberId = mapColumns.memberId ? String(row[mapColumns.memberId - 1] || "").trim() : "";
+    const recipientMember = hasNewMember ? membersById.get(newMemberId) : null;
+    const mapMember = hasNewMapMember ? membersById.get(newMapMemberId) : null;
+
+    if (hasNewMember) {
+      if (!recipientMember || recipientMember.status_aktif !== "AKTIF") {
+        return { queueId: queueId, success: false, message: "Pilih anggota penerima aktif yang valid." };
+      }
+      if (newMemberId !== currentMemberId && (currentStatus === "SUDAH_DIAMBIL" || transactionQueueIds.has(queueId))) {
+        return { queueId: queueId, success: false, message: "Penerima tidak dapat diubah karena transaksi pengambilan sudah tercatat." };
+      }
+    }
+    if (hasNewMapMember && !membersById.has(newMapMemberId)) {
+      return { queueId: queueId, success: false, message: "Pilih anggota MAP yang valid." };
+    }
+    if (hasNewStatus && allowedStatuses.indexOf(newStatus) === -1) {
+      if (newStatus === "SUDAH_DIAMBIL") {
+        return {
+          queueId: queueId,
+          success: false,
+          message: "Gunakan modal Konfirmasi Pengambilan & Pembayaran untuk mencatat transaksi."
+        };
+      }
+      return { queueId: queueId, success: false, message: "Status pengambilan tidak valid." };
+    }
+    if (hasNewStatus && newStatus !== currentStatus &&
+        (currentStatus === "SUDAH_DIAMBIL" || transactionQueueIds.has(queueId))) {
+      return { queueId: queueId, success: false, message: "Status transaksi yang sudah tercatat tidak dapat dibalik." };
+    }
+
+    const changes = [];
+    try {
+      if (hasNewMember && newMemberId !== currentMemberId) {
+        queueSheet.getRange(target.rowIndex, 5).setValue(recipientMember.id_anggota);
+        queueSheet.getRange(target.rowIndex, 6).setValue("DIGANTIKAN");
+        queueSheet.getRange(target.rowIndex, 7).setValue(
+          "Jatah dari " + row[3] + " dialihkan ke " + recipientMember.nama_lengkap +
+          " (" + recipientMember.id_anggota + "). Alasan: Penggantian penerima masal."
+        );
+        changes.push("Penerima berhasil diganti menjadi " + recipientMember.nama_lengkap + ".");
+      }
+
+      if (hasNewMapMember && newMapMemberId !== currentMapMemberId) {
+        const columns = getQueueMapColumns_(queueSheet, true);
+        const updatedAt = new Date();
+        queueSheet.getRange(target.rowIndex, columns.owner).setValue(mapMember.nama_lengkap);
+        queueSheet.getRange(target.rowIndex, columns.updatedAt).setValue(updatedAt);
+        queueSheet.getRange(target.rowIndex, columns.memberId).setValue(newMapMemberId);
+        queueSheet.getRange(target.rowIndex, columns.memberName).setValue(mapMember.nama_lengkap);
+        changes.push("MAP atas nama " + mapMember.nama_lengkap + " berhasil disimpan.");
+      }
+
+      if (hasNewStatus && newStatus !== currentStatus) {
+        if (newStatus === "BATAL_LEWAT") {
+          queueSheet.getRange(target.rowIndex, 6).setValue("BATAL_LEWAT");
+          const statusNote = "Status diubah menjadi BATAL_LEWAT melalui perubahan massal.";
+          queueSheet.getRange(target.rowIndex, 7).setValue(row[6] ? String(row[6]) + "\n" + statusNote : statusNote);
+          changes.push("Status diubah menjadi BATAL_LEWAT.");
+        } else {
+          queueSheet.getRange(target.rowIndex, 6).setValue("MENUNGGU");
+          const statusNote = "Status diubah menjadi MENUNGGU melalui perubahan massal.";
+          queueSheet.getRange(target.rowIndex, 7).setValue(row[6] ? String(row[6]) + "\n" + statusNote : statusNote);
+          changes.push("Status diubah menjadi MENUNGGU.");
+        }
+      }
+
+      return {
+        queueId: queueId,
+        success: true,
+        unchanged: changes.length === 0,
+        message: changes.length ? changes.join(" ") : "Data sudah sesuai; tidak ada perubahan."
+      };
+    } catch (error) {
+      return {
+        queueId: queueId,
+        success: false,
+        message: error && error.message ? error.message : "Perubahan antrian gagal."
+      };
+    }
+  });
+
+  return {
+    success: true,
+    message: "Perubahan massal antrian selesai diproses.",
     results: results
   };
 }

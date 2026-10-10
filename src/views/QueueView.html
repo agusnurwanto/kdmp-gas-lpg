@@ -100,7 +100,7 @@
   <div class="modal-dialog">
     <div class="modal-header">
       <h3 class="modal-title">Konfirmasi Pengambilan & Pembayaran</h3>
-      <button class="modal-close" onclick="closeModal('modal-pickup')">&times;</button>
+      <button class="modal-close" onclick="cancelPickupModal()">&times;</button>
     </div>
     <div class="modal-body">
       <input type="hidden" id="pickup-queue-id">
@@ -127,8 +127,8 @@
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-outline" onclick="closeModal('modal-pickup')">Batal</button>
-      <button class="btn btn-success" onclick="submitPickup()">✓ Serahkan Gas & Selesai</button>
+      <button class="btn btn-outline" onclick="cancelPickupModal()">Batal</button>
+      <button id="pickup-submit-button" class="btn btn-success" onclick="submitPickup()">✓ Serahkan Gas & Selesai</button>
     </div>
   </div>
 </div>
@@ -165,15 +165,60 @@
   </div>
 </div>
 
-<!-- MODAL: Ganti Penerima Masal -->
+<!-- MODAL: Pratinjau dan Salin Pengumuman WhatsApp -->
+<div id="modal-copy-queue-wa" class="modal-backdrop" role="presentation">
+  <div class="modal-dialog wa-copy-dialog" role="dialog" aria-modal="true" aria-labelledby="copy-queue-wa-title">
+    <div class="modal-header">
+      <h3 id="copy-queue-wa-title" class="modal-title">Pratinjau Teks Pengumuman WhatsApp</h3>
+      <button class="modal-close" type="button" aria-label="Tutup" onclick="closeModal('modal-copy-queue-wa')">&times;</button>
+    </div>
+    <div class="modal-body wa-copy-body">
+      <div class="wa-copy-content">
+        <div class="form-group">
+          <label class="form-label" for="queue-wa-text">Edit teks pengumuman</label>
+          <textarea id="queue-wa-text" class="input-text wa-copy-textarea" spellcheck="false"></textarea>
+        </div>
+        <div class="form-group">
+          <div class="form-label" id="queue-wa-preview-label">Pratinjau pesan</div>
+          <pre id="queue-wa-preview" class="wa-copy-preview" aria-labelledby="queue-wa-preview-label"></pre>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" type="button" onclick="closeModal('modal-copy-queue-wa')">Tutup</button>
+      <button class="btn btn-primary" type="button" onclick="copyEditedQueueAnnouncement()">Salin Teks</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Konfirmasi Pengaturan Massal Antrian -->
+<div id="modal-bulk-replace-confirm" class="modal-backdrop" role="presentation">
+  <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="bulk-replace-confirm-title" aria-describedby="bulk-replace-confirm-message">
+    <div class="modal-header">
+      <h3 id="bulk-replace-confirm-title" class="modal-title">Buka Pengaturan Massal?</h3>
+      <button class="modal-close" type="button" aria-label="Tutup" onclick="closeModal('modal-bulk-replace-confirm')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p id="bulk-replace-confirm-message" style="font-size: 14px; color: var(--text-muted);">
+        Perubahan penerima, orang MAP, dan status akan langsung disimpan ke database setiap kali dipilih.
+      </p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" type="button" onclick="closeModal('modal-bulk-replace-confirm')">Batal</button>
+      <button class="btn btn-primary" type="button" onclick="confirmOpenBulkReplaceModal()">Lanjutkan</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Pengaturan Massal Antrian -->
 <div id="modal-bulk-replace" class="modal-backdrop" role="presentation">
   <div class="modal-dialog bulk-replace-dialog" role="dialog" aria-modal="true" aria-labelledby="bulk-replace-title">
     <div class="modal-header">
-      <h3 id="bulk-replace-title" class="modal-title">Ganti Penerima Batch</h3>
+      <h3 id="bulk-replace-title" class="modal-title">Pengaturan Massal Antrian Batch</h3>
       <button class="modal-close" type="button" aria-label="Tutup" onclick="requestCloseBulkReplaceModal()">&times;</button>
     </div>
     <div class="modal-body">
-      <p id="bulk-replace-description" style="margin-bottom: 12px; color: var(--text-muted); font-size: 13px;">Pilih penerima baru pada slot yang perlu dialihkan. Setiap pilihan disimpan otomatis.</p>
+      <p id="bulk-replace-description" style="margin-bottom: 12px; color: var(--text-muted); font-size: 13px;">Ubah penerima, orang MAP, atau status pengambilan pada setiap slot. Setiap perubahan langsung disimpan ke database.</p>
       <div id="bulk-replace-list" class="bulk-replace-list"></div>
     </div>
     <div class="modal-footer">

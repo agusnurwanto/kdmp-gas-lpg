@@ -767,6 +767,18 @@ function confirmPickupAndPayment(params) {
   if (params.sessionToken !== undefined && !validateSession(params.sessionToken)) {
     return { success: false, message: "Unauthorized: Sesi admin tidak valid atau sudah kedaluwarsa.", code: 403 };
   }
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    return { success: false, message: "Transaksi sedang diproses. Coba kembali beberapa saat lagi." };
+  }
+  try {
+    return confirmPickupAndPaymentLocked_(params);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function confirmPickupAndPaymentLocked_(params) {
   const queueId = params.queueId || params.id_antrian;
   if (!queueId) {
     throw new Error("ID Antrian (queueId) wajib disertakan.");

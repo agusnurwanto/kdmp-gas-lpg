@@ -56,11 +56,12 @@ Sistem menyediakan dua cara notifikasi ke warga:
 
 1. **Pengumuman Grup WhatsApp Desa (Massal)**:
    - Klik tombol **`📢 Salin Teks WA`** di bagian atas tab antrian.
-   - Buka grup WhatsApp Warga Desa Gulun dan tempelkan (*paste*).
-   - Pesan memuat daftar 25 nama anggota, nomor urut, waktu ambil, dan tautan portal beranda publik.
+   - Periksa dan edit teks pada modal; pratinjau di samping akan berubah mengikuti edit.
+   - Klik **Salin Teks**, lalu buka grup WhatsApp Warga Desa Gulun dan tempelkan (*paste*).
+   - Pesan memuat daftar nama anggota, nomor urut, dan jadwal dengan hari yang sesuai tanggal batch; jam pengambilan tidak dicantumkan.
 2. **Pengingat WhatsApp Personal ke Tiap Warga**:
    - Pada kartu antrian masing-masing warga, klik tombol hijau **`📱 WA`**.
-   - Sistem akan langsung membuka aplikasi/web WhatsApp dengan draf pesan pengingat personal ramah warga (nama, nomor antrian, harga dinamis, dan jadwal Jumat).
+   - Sistem akan langsung membuka aplikasi/web WhatsApp dengan draf pesan pengingat personal ramah warga (nama, nomor antrian, harga dinamis, dan hari/tanggal batch).
    - Waktu pengiriman akan dicatat otomatis (*timestamp*) dan muncul di kartu antrian sebagai bukti konfirmasi.
 3. **Pengecekan Mandiri oleh Warga**:
    - Warga dapat langsung membuka link beranda publik, mengetikkan nama di kolom pencarian, atau memilih riwayat pengiriman per-Jumat pada dropdown filter batch.
@@ -79,6 +80,10 @@ Jika pada hari H terjadi situasi khusus:
   - **Keuntungan Sistem:** Riwayat beli akan dicatatkan pada **anggota pengganti**, sedangkan anggota awal tetap berstatus belum beli sehingga akan otomatis diprioritaskan di batch Jumat berikutnya!
 - **Kasus C: Warga Tidak Hadir / Lewat Batas Waktu**
   - Klik tombol **`✕ Lewat`** untuk menandai status `BATAL_LEWAT` agar slot dapat diberikan ke anggota cadangan yang siap di pangkalan.
+- **Pengaturan Massal Batch**
+  - Klik **`⇄ Ganti Masal`**, lalu atur penerima, orang MAP, dan/atau status pengambilan per slot.
+  - Setiap perubahan tersimpan otomatis. Perubahan status menjadi `SUDAH_DIAMBIL` akan mencatat transaksi TUNAI memakai harga aplikasi dan nama anggota penerima sebagai pengambil, lalu memperbarui stok serta kuota.
+  - Status pengambilan yang sudah memiliki transaksi tidak dapat dibalik lewat pengaturan massal.
 
 ---
 
@@ -96,6 +101,7 @@ Jika pada hari H terjadi situasi khusus:
 
 Pengurus, kepala desa, dan seluruh warga dapat memantau realisasi kuota secara langsung di tab **📊 Laporan Rekap**:
 - **Statistik Kuota Bulanan**: Memantau berapa tabung yang sudah terealisasi dari kuota 100 tabung per bulan.
+- Kolom **Total Kumulatif** selalu ditampilkan kepada admin; untuk pengunjung publik, kolom tetap mengikuti pilihan privasi di menu pengaturan.
 - **Penyaringan Cepat**:
   - Filter `⏳ Belum Dapat Bulan Ini (Prioritas)` untuk melihat warga yang berhak atas alokasi berikutnya.
   - Filter `✅ Sudah Dapat Bulan Ini` untuk audit penyaluran.
@@ -110,6 +116,8 @@ Untuk menjaga keamanan operasional pangkalan:
 1. Buka tab **⚙️ Setup & PIN** (hanya terlihat saat login Admin).
 2. Pada kartu **Keamanan & Autentikasi**, masukkan PIN Lama dan PIN Baru (minimal 4 digit).
 3. Klik **`Simpan PIN Baru`**. PIN baru langsung tersimpan aman di database Spreadsheet.
+4. Pada kartu **Backup & Restore Data JSON**, klik **`Unduh Backup JSON`** untuk menyimpan salinan lima sheet aplikasi. Nama file memuat nama koperasi, hari, dan tanggal backup.
+5. Untuk pemulihan, pilih file backup JSON lalu klik **`Restore dari JSON`**. Pastikan file benar: restore mengganti isi lima sheet aplikasi (anggota, batch, antrian, transaksi, pengaturan) dan meminta konfirmasi; sheet lain tidak diubah.
 
 ---
 
@@ -136,4 +144,3 @@ Gunakan fitur ini untuk memasukkan rekap bulanan dari file seperti `09-2026.json
 ID transaksi dibentuk secara deterministik dari periode dan `customerReportId`, sehingga file yang sama aman diproses ulang tanpa menggandakan transaksi atau statistik. Impor historis mencatat `id_antrian` dan `id_batch` kosong, metode bayar `IMPOR_HISTORIS`, serta petugas `IMPOR JSON`; impor tidak membuat antrian, batch, atau mengurangi stok. Riwayat kumulatif dan tanggal pembelian anggota diperbarui untuk transaksi yang baru ditambahkan. Kuota bulan berjalan hanya bertambah jika tanggal transaksi memang berada pada bulan berjalan.
 
 JSON yang rusak, nilai tabung tidak valid, tanggal ISO tidak nyata, atau total kuantitas baris yang berbeda dari `summaryReport.sold` akan ditolak sebelum penulisan. File yang diperlukan harus dipilih dari perangkat admin; Web App tidak membaca folder `data_penjualan` di server lokal proyek.
-

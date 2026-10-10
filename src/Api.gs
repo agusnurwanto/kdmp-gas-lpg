@@ -167,6 +167,15 @@ function handleApiPost(data) {
     case "replaceQueueMembersBulk":
       return replaceQueueMembersBulk(data.batchId, data.mappings, data.reason, data.sessionToken);
 
+    case "updateQueueItemsBulk":
+      return updateQueueItemsBulk_(data.batchId, data.mappings, data.sessionToken);
+
+    case "createDatabaseBackup":
+      return createDatabaseBackupPayload_();
+
+    case "restoreDatabaseBackup":
+      return restoreDatabaseBackupPayload_(data.backup);
+
     case "cancelOrSkipQueue":
       return cancelOrSkipQueue(data.queueId, data.reason);
 
