@@ -16,21 +16,23 @@ Ikuti langkah-langkah berikut untuk memasang aplikasi Penjualan Gas LPG Koperasi
 
 Di editor Google Apps Script, buat berkas-berkas berikut sesuai struktur proyek:
 
-### 1. File Skrip (.gs) — Tambahkan 6 file:
+### 1. File Skrip (.gs) — Tambahkan 7 file:
 - `Code.gs` &rarr; Salin dari file [`src/Code.gs`](file:///c:/xampp/htdocs/google_apps_script/src/Code.gs)
 - `ServiceMember.gs` &rarr; Salin dari file [`src/ServiceMember.gs`](file:///c:/xampp/htdocs/google_apps_script/src/ServiceMember.gs)
 - `ServiceQueue.gs` &rarr; Salin dari file [`src/ServiceQueue.gs`](file:///c:/xampp/htdocs/google_apps_script/src/ServiceQueue.gs)
 - `ServiceTransaction.gs` &rarr; Salin dari file [`src/ServiceTransaction.gs`](file:///c:/xampp/htdocs/google_apps_script/src/ServiceTransaction.gs)
+- `ServiceProduct.gs` &rarr; Salin dari file [`src/ServiceProduct.gs`](file:///c:/xampp/htdocs/google_apps_script/src/ServiceProduct.gs)
 - `ServiceReport.gs` &rarr; Salin dari file [`src/ServiceReport.gs`](file:///c:/xampp/htdocs/google_apps_script/src/ServiceReport.gs)
 - `Api.gs` &rarr; Salin dari file [`src/Api.gs`](file:///c:/xampp/htdocs/google_apps_script/src/Api.gs)
 
-### 2. File HTML (Klik tanda `+` > HTML) — Tambahkan 8 file:
+### 2. File HTML (Klik tanda `+` > HTML) — Tambahkan 9 file:
 - `Index.html` &rarr; Salin dari file [`src/views/Index.html`](file:///c:/xampp/htdocs/google_apps_script/src/views/Index.html)
 - `Header.html` &rarr; Salin dari file [`src/views/Header.html`](file:///c:/xampp/htdocs/google_apps_script/src/views/Header.html)
 - `PublicHomeView.html` &rarr; Salin dari file [`src/views/PublicHomeView.html`](file:///c:/xampp/htdocs/google_apps_script/src/views/PublicHomeView.html)
 - `QueueView.html` &rarr; Salin dari file [`src/views/QueueView.html`](file:///c:/xampp/htdocs/google_apps_script/src/views/QueueView.html)
 - `DashboardView.html` &rarr; Salin dari file [`src/views/DashboardView.html`](file:///c:/xampp/htdocs/google_apps_script/src/views/DashboardView.html)
 - `MemberView.html` &rarr; Salin dari file [`src/views/MemberView.html`](file:///c:/xampp/htdocs/google_apps_script/src/views/MemberView.html)
+- `ProductView.html` &rarr; Salin dari file [`src/views/ProductView.html`](file:///c:/xampp/htdocs/google_apps_script/src/views/ProductView.html)
 - `Style.html` &rarr; Salin dari file [`src/views/Style.html`](file:///c:/xampp/htdocs/google_apps_script/src/views/Style.html)
 - `Script.html` &rarr; Salin dari file [`src/views/Script.html`](file:///c:/xampp/htdocs/google_apps_script/src/views/Script.html)
 
@@ -41,12 +43,17 @@ Di editor Google Apps Script, buat berkas-berkas berikut sesuai struktur proyek:
 1. Pada dropdown fungsi di bagian atas Apps Script Editor, pilih fungsi **`setupDatabase`**.
 2. Klik tombol **Run / Jalankan** (▶).
 3. Berikan izin akses (*Review Permissions* &rarr; *Allow*).
-4. Fungsi ini akan secara otomatis membuat 5 lembar kerja (Sheet) di spreadsheet Anda:
+4. Fungsi ini akan secara otomatis membuat 8 lembar kerja (Sheet) di spreadsheet Anda:
    - `ANGGOTA` (Master data & riwayat kuota)
    - `BATCH_PENGIRIMAN` (Jadwal 25 tabung tiap Jumat)
    - `ANTRIAN_DISTRIBUSI` (10 kolom termasuk pelacakan log WhatsApp)
    - `TRANSAKSI_PENJUALAN` (Catatan bayar & ambil)
+   - `PRODUK` (Katalog produk barang dan layanan non-LPG)
+   - `BARANG_MASUK` (Riwayat barang diterima dan penambahan stok)
+   - `TRANSAKSI_PRODUK` (Riwayat penjualan barang dan layanan)
    - `PENGATURAN` (Nama koperasi, kuota batch, harga resmi, & PIN Admin default `123456`)
+
+Jalankan kembali `setupDatabase()` pada spreadsheet aplikasi yang sudah ada untuk menambahkan tiga sheet produk tanpa menghapus data lama. Produk fisik memiliki stok; layanan digital seperti pulsa listrik dan paket data dicatat tanpa stok. Pada spreadsheet yang sudah memiliki `TRANSAKSI_PRODUK`, aplikasi menambahkan header `jenis_pembeli` dan `id_anggota` setelah kolom lama ketika admin pertama kali membuka atau menyimpan data produk; baris transaksi lama tidak dihapus.
 
 ---
 

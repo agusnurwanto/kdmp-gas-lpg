@@ -14,16 +14,29 @@ Aplikasi Web KDMP Desa Gulun dirancang dengan 2 tingkatan akses yang aman dan mu
 | **📊 Laporan Rekapitulasi** | ✅ Terbuka (Nomor HP Tersembunyi) | ✅ Terbuka + Lengkap No HP & Tombol CSV |
 | **📋 Antrian Batch & Kasir** | ❌ Terkunci | ✅ Akses Penuh via PIN Admin |
 | **👥 Master Anggota** | ❌ Terkunci | ✅ Akses Penuh via PIN Admin |
+| **🛍️ Produk & Stok** | ❌ Terkunci | ✅ Akses Penuh via PIN Admin |
 | **⚙️ Pengaturan, PIN & Impor Penjualan** | ❌ Terkunci | ✅ Akses Penuh via PIN Admin |
 
 > **🔐 Cara Masuk Mode Admin**:
 > 1. Klik tombol **`🔐 Login Admin`** di pojok kanan atas.
 > 2. Masukkan PIN Admin (Default awal: **`123456`**).
-> 3. Menu pengelolaan antrian, kasir, anggota, dan setup akan otomatis muncul.
+> 3. Menu pengelolaan antrian, kasir, anggota, produk, dan setup akan otomatis muncul.
 
 ---
 
-## 2. Siklus Distribusi Mingguan (Hari Jumat Sore)
+## 2. Pengelolaan Produk Non-LPG
+
+1. Buka tab **🛍️ Produk & Stok** sebagai admin dan tambahkan produk baru satu kali. Isi nama, kategori, tipe, satuan, dan harga jual default.
+2. Pilih tipe **Barang** untuk produk fisik seperti telur, gas non-subsidi 5.5/12 kg, Minyak Kita 1/2 liter, atau beras SPHP. Gunakan **Catat Barang Masuk** setiap menerima stok dari pemasok; jumlah stok akan bertambah.
+3. Pilih tipe **Layanan digital (tanpa stok)** untuk pulsa listrik, paket data, atau layanan lain. Layanan dapat dijual tanpa pencatatan barang masuk atau stok fisik.
+4. Catat transaksi pada form **Catat Penjualan** dengan memilih produk tersimpan. Pilih jenis pembeli **Masyarakat umum** lalu isi nama manual, atau pilih **Anggota** lalu pilih anggota dari daftar. Untuk anggota, sistem menyimpan ID anggota dan snapshot nama sebagai dasar sistem poin mendatang; transaksi ini tidak memengaruhi kuota LPG. Harga dan waktu transaksi (default waktu saat ini) dapat disesuaikan sebelum disimpan.
+5. Saat menerima barang, waktu pada form **Catat Barang Masuk** juga otomatis terisi waktu saat ini dan dapat diubah. Penjualan barang mengurangi stok otomatis dan sistem menolak penjualan jika stok tidak cukup.
+6. Riwayat barang masuk dan penjualan terbaru dapat **diedit** atau **dihapus** oleh admin. Pilih **Sesuaikan stok otomatis** (default) agar stok ikut direkonsiliasi berdasarkan perubahan riwayat; sistem menolak penyesuaian yang membuat stok negatif. Pilih **Atur stok manual** jika stok akan diselaraskan terpisah; dalam pilihan ini perubahan riwayat tidak mengubah stok. Setelahnya, gunakan tombol **Atur Stok** pada produk barang di katalog untuk memasukkan jumlah stok fisik yang benar.
+7. Produk yang memiliki stok atau riwayat transaksi tidak dapat dihapus; ubah statusnya menjadi **NONAKTIF** agar tidak muncul sebagai pilihan penjualan. Produk tanpa stok dan tanpa riwayat dapat dihapus.
+
+---
+
+## 3. Siklus Distribusi Mingguan (Hari Jumat Sore)
 
 Setiap bulan pangkalan menerima pasokan **100 tabung**, yang disalurkan dalam **4 siklus pengiriman (25 tabung setiap hari Jumat pukul 16:00 WIB)**:
 
@@ -39,7 +52,7 @@ prioritas Batch 1 & 2 di awal bulan berikutnya (Sistem Bergulir Adil).
 
 ---
 
-## 3. Alur Kerja Pengurus Setiap Hari Jumat
+## 4. Alur Kerja Pengurus Setiap Hari Jumat
 
 ### Langkah 1: Generate Antrian Berkeadilan
 1. Buka Web App KDMP Desa Gulun di HP atau Laptop pengurus, lalu Login Admin.
@@ -97,7 +110,7 @@ Jika pada hari H terjadi situasi khusus:
 
 ---
 
-## 4. Monitoring & Laporan di Dashboard Transparansi
+## 5. Monitoring & Laporan di Dashboard Transparansi
 
 Pengurus, kepala desa, dan seluruh warga dapat memantau realisasi kuota secara langsung di tab **📊 Laporan Rekap**:
 - **Statistik Kuota Bulanan**: Memantau berapa tabung yang sudah terealisasi dari kuota 100 tabung per bulan.
@@ -110,18 +123,18 @@ Pengurus, kepala desa, dan seluruh warga dapat memantau realisasi kuota secara l
 
 ---
 
-## 5. Keamanan & Pergantian PIN Admin
+## 6. Keamanan & Pergantian PIN Admin
 
 Untuk menjaga keamanan operasional pangkalan:
 1. Buka tab **⚙️ Setup & PIN** (hanya terlihat saat login Admin).
 2. Pada kartu **Keamanan & Autentikasi**, masukkan PIN Lama dan PIN Baru (minimal 4 digit).
 3. Klik **`Simpan PIN Baru`**. PIN baru langsung tersimpan aman di database Spreadsheet.
-4. Pada kartu **Backup & Restore Data JSON**, klik **`Unduh Backup JSON`** untuk menyimpan salinan lima sheet aplikasi. Nama file memuat nama koperasi, hari, dan tanggal backup.
-5. Untuk pemulihan, pilih file backup JSON lalu klik **`Restore dari JSON`**. Pastikan file benar: restore mengganti isi lima sheet aplikasi (anggota, batch, antrian, transaksi, pengaturan) dan meminta konfirmasi; sheet lain tidak diubah.
+4. Pada kartu **Backup & Restore Data JSON**, klik **`Unduh Backup JSON`** untuk menyimpan salinan delapan sheet aplikasi. Nama file memuat nama koperasi, hari, dan tanggal backup.
+5. Untuk pemulihan, pilih file backup JSON lalu klik **`Restore dari JSON`**. Pastikan file benar: restore mengganti isi delapan sheet aplikasi (anggota, batch, antrian, transaksi LPG, produk, barang masuk, transaksi produk, pengaturan) dan meminta konfirmasi; sheet lain tidak diubah. Backup versi sebelumnya tanpa sheet produk tetap dapat dipulihkan.
 
 ---
 
-## 6. Prosedur Pergantian Bulan Baru (Reset Siklus Kuota)
+## 7. Prosedur Pergantian Bulan Baru (Reset Siklus Kuota)
 
 Pada awal bulan baru (setiap tanggal 1):
 1. Buka tab **⚙️ Setup & PIN**.
@@ -130,7 +143,7 @@ Pada awal bulan baru (setiap tanggal 1):
 
 ---
 
-## 7. Impor Penjualan Historis dari JSON
+## 8. Impor Penjualan Historis dari JSON
 
 Gunakan fitur ini untuk memasukkan rekap bulanan dari file seperti `09-2026.json`:
 

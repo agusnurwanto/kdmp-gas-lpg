@@ -197,6 +197,21 @@ function handleApiPost(data) {
     case "recordWaSent":
       return recordWaSent(data.queueId);
 
+    case "getProductManagementData":
+      return getProductManagementData(data);
+
+    case "saveProduct":
+      return saveProduct(data);
+
+    case "deleteProduct":
+      return deleteProduct(data);
+
+    case "recordProductStockIn":
+      return recordProductStockIn(data);
+
+    case "recordProductSale":
+      return recordProductSale(data);
+
     case "logoutAdmin":
       return logoutAdmin(data.sessionToken);
 

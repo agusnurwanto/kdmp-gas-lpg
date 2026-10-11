@@ -16,6 +16,7 @@ Aplikasi Google Apps Script untuk mengelola anggota, jadwal pasokan LPG, antrian
 - **Beranda dan laporan**: Menampilkan ringkasan distribusi, batch, pencarian antrian, dan laporan anggota.
 - **WhatsApp**: Membuat draf pesan personal untuk dibuka di WhatsApp serta menyalin teks pengumuman grup. Aplikasi tidak mengirim pesan WhatsApp secara otomatis; pencatatan waktu adalah log tindakan dari aplikasi, bukan konfirmasi bahwa pesan terkirim.
 - **Penyesuaian lapangan**: Menukar urutan, mengganti penerima, menandai antrian batal/lewat, serta mencatat pengambilan dan pembayaran.
+- **Produk non-LPG**: Admin dapat menyimpan katalog produk yang dipakai berulang (misalnya telur, gas non-subsidi 5.5/12 kg, Minyak Kita 1/2 liter, beras SPHP), mencatat barang masuk dan penjualan, serta menjual layanan seperti pulsa listrik/paket data tanpa stok fisik. Penjualan dapat dicatat atas nama anggota (ID dan snapshot nama disimpan untuk dasar poin) atau masyarakat umum.
 - **Pengaturan**: Data koperasi, harga, kuota, logo, dan PIN admin dikelola melalui aplikasi/database.
 - **Integrasi AI Agent (MCP Server)**: MCP Server TypeScript/Node.js dan Python menyediakan tools untuk pemantauan dan operasi sistem.
 - **Basis Teknologi**:
@@ -27,15 +28,18 @@ Aplikasi Google Apps Script untuk mengelola anggota, jadwal pasokan LPG, antrian
 
 ## 2. Struktur Database (Google Spreadsheet)
 
-Database menggunakan satu file Google Spreadsheet dengan 5 lembar kerja (Sheets):
+Database menggunakan satu file Google Spreadsheet dengan 8 lembar kerja (Sheets):
 
 ```
 Google Spreadsheet Database: [KDMP_Desa_Gulun_Gas_LPG]
  ├── ANGGOTA (Data master anggota & riwayat akumulasi)
  ├── BATCH_PENGIRIMAN (Data pengiriman 25 tabung tiap Jumat)
-  ├── ANTRIAN_DISTRIBUSI (Data slot antrian per batch, penyesuaian lapangan & log tindakan WA)
+ ├── ANTRIAN_DISTRIBUSI (Data slot antrian per batch, penyesuaian lapangan & log tindakan WA)
  ├── TRANSAKSI_PENJUALAN (Catatan penjualan riil saat gas diambil & dibayar)
-  └── PENGATURAN (Konfigurasi kuota batch, harga, PIN admin & profil koperasi)
+ ├── PRODUK (Master katalog barang dan layanan non-LPG)
+ ├── BARANG_MASUK (Penerimaan produk dari pemasok dan penambahan stok)
+ ├── TRANSAKSI_PRODUK (Penjualan barang dan layanan non-LPG)
+ └── PENGATURAN (Konfigurasi kuota batch, harga, PIN admin & profil koperasi)
 ```
 
 ### Rincian Kolom Setiap Sheet:
@@ -101,7 +105,26 @@ Google Spreadsheet Database: [KDMP_Desa_Gulun_Gas_LPG]
 | `nama_pengambil` | String | Nama yang mengambil fisik gas di lokasi |
 | `petugas_pencatat`| String | Nama petugas koperasi yang melayani |
 
-#### 5. Sheet `PENGATURAN`
+#### 5. Sheet `PRODUK`
+| Kolom | Deskripsi |
+| :--- | :--- |
+| `id_produk` | ID master produk yang dipakai kembali pada transaksi |
+| `nama_produk`, `kategori`, `satuan` | Identitas produk, misalnya Telur / Sembako / kg |
+| `tipe_produk` | `BARANG` menggunakan stok; `LAYANAN` tidak menggunakan stok fisik |
+| `harga_jual` | Harga jual default per satuan |
+| `stok` | Stok berjalan; bertambah dari barang masuk dan berkurang saat penjualan barang |
+| `status_aktif` | `AKTIF` dapat dijual; `NONAKTIF` disimpan namun tidak ditawarkan untuk penjualan |
+| `dibuat_pada`, `diperbarui_pada` | Waktu pencatatan dan perubahan master |
+
+#### 6. Sheet `BARANG_MASUK`
+Mencatat ID dan snapshot nama produk, waktu, jumlah masuk, harga beli satuan, total pembelian, pemasok, catatan, serta petugas. Barang masuk hanya berlaku untuk produk bertipe `BARANG`.
+
+#### 7. Sheet `TRANSAKSI_PRODUK`
+Mencatat ID dan snapshot nama/tipe produk, waktu, jumlah, harga jual satuan, total pembayaran, metode bayar, nama pembeli, petugas, `jenis_pembeli` (`ANGGOTA`/`UMUM`), dan `id_anggota` jika pembeli anggota. Nama anggota disimpan sebagai snapshot; penjualan produk ini tidak mengubah kuota distribusi LPG. Waktu transaksi dapat disunting admin.
+
+Riwayat barang masuk dan penjualan dapat diedit atau dihapus admin. Setiap tindakan menyediakan pilihan rekonsiliasi stok otomatis (default) atau manual. Rekonsiliasi otomatis menjaga stok berjalan sesuai perubahan riwayat dan ditolak jika menghasilkan stok negatif. Untuk pilihan manual, stok dapat diselaraskan lewat tombol **Atur Stok** pada katalog barang. Kolom jenis pembeli dan ID anggota ditambahkan di akhir header transaksi produk lama saat fitur dibuka, tanpa menghapus data riwayat yang sudah tercatat.
+
+#### 8. Sheet `PENGATURAN`
 | Kunci | Nilai Default | Deskripsi |
 | :--- | :--- | :--- |
 | `NAMA_KOPERASI` | `Koperasi Desa Merah Putih (KDMP) Desa Gulun` | Nama resmi koperasi |
@@ -334,6 +357,7 @@ kdmp-gas-lpg/
 │   ├── ServiceMember.gs          # Data anggota, import dan reset bulanan
 │   ├── ServiceQueue.gs           # Batch dan manajemen antrian
 │   ├── ServiceTransaction.gs     # Transaksi dan pembaruan stok
+│   ├── ServiceProduct.gs         # Katalog produk non-LPG, stok, barang masuk & penjualan
 │   ├── ServiceReport.gs          # Analitik dan laporan
 │   ├── Api.gs                    # Router REST GET/POST untuk MCP
 │   └── views/                    # Antarmuka HTML Service
@@ -343,6 +367,7 @@ kdmp-gas-lpg/
 │       ├── QueueView.html
 │       ├── DashboardView.html
 │       ├── MemberView.html
+│       ├── ProductView.html
 │       ├── Style.html
 │       └── Script.html
 ├── docs/
@@ -359,3 +384,4 @@ kdmp-gas-lpg/
 2. Pemilihan antrian berdasarkan riwayat pembelian anggota dan kuota batch.
 3. Penyesuaian urutan/penerima, konfirmasi pengambilan, dan pencatatan tindakan WhatsApp.
 4. Antarmuka Web App Google Apps Script dan integrasi melalui MCP Server.
+5. Pengelolaan katalog produk non-LPG, barang masuk, stok, serta penjualan barang dan layanan digital.

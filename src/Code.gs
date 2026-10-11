@@ -19,6 +19,9 @@ const CONFIG = {
     BATCH_PENGIRIMAN: "BATCH_PENGIRIMAN",
     ANTRIAN_DISTRIBUSI: "ANTRIAN_DISTRIBUSI",
     TRANSAKSI_PENJUALAN: "TRANSAKSI_PENJUALAN",
+    PRODUK: "PRODUK",
+    BARANG_MASUK: "BARANG_MASUK",
+    TRANSAKSI_PRODUK: "TRANSAKSI_PRODUK",
     PENGATURAN: "PENGATURAN"
   }
 };
@@ -206,7 +209,7 @@ function getDatabase() {
 
 /**
  * Fungsi Setup Inisialisasi Database Google Spreadsheet
- * Membuat 5 sheet tabel jika belum ada dan mengisi konfigurasi awal.
+ * Membuat 8 sheet tabel jika belum ada dan mengisi konfigurasi awal.
  */
 function setupDatabase(spreadsheetId) {
   let ss;
@@ -282,7 +285,41 @@ function setupDatabase(spreadsheetId) {
     sheetTrx.setFrozenRows(1);
   }
 
-  // 5. Sheet PENGATURAN
+  // 5. Sheet PRODUK
+  let sheetProduk = ss.getSheetByName(CONFIG.SHEETS.PRODUK);
+  if (!sheetProduk) {
+    sheetProduk = ss.insertSheet(CONFIG.SHEETS.PRODUK);
+    sheetProduk.getRange(1, 1, 1, 10).setValues([[
+      "id_produk", "nama_produk", "kategori", "tipe_produk", "satuan",
+      "harga_jual", "stok", "status_aktif", "dibuat_pada", "diperbarui_pada"
+    ]]).setFontWeight("bold").setBackground("#0F766E").setFontColor("#FFFFFF");
+    sheetProduk.setFrozenRows(1);
+  }
+
+  // 6. Sheet BARANG_MASUK
+  let sheetBarangMasuk = ss.getSheetByName(CONFIG.SHEETS.BARANG_MASUK);
+  if (!sheetBarangMasuk) {
+    sheetBarangMasuk = ss.insertSheet(CONFIG.SHEETS.BARANG_MASUK);
+    sheetBarangMasuk.getRange(1, 1, 1, 10).setValues([[
+      "id_barang_masuk", "id_produk", "nama_produk", "tgl_waktu",
+      "jumlah", "harga_beli_satuan", "total_beli", "pemasok", "catatan", "petugas"
+    ]]).setFontWeight("bold").setBackground("#7C3AED").setFontColor("#FFFFFF");
+    sheetBarangMasuk.setFrozenRows(1);
+  }
+
+  // 7. Sheet TRANSAKSI_PRODUK
+  let sheetTrxProduk = ss.getSheetByName(CONFIG.SHEETS.TRANSAKSI_PRODUK);
+  if (!sheetTrxProduk) {
+    sheetTrxProduk = ss.insertSheet(CONFIG.SHEETS.TRANSAKSI_PRODUK);
+    sheetTrxProduk.getRange(1, 1, 1, 13).setValues([[
+      "id_transaksi", "tgl_waktu", "id_produk", "nama_produk", "tipe_produk",
+      "jumlah", "harga_satuan", "total_bayar", "metode_bayar", "nama_pembeli", "petugas",
+      "jenis_pembeli", "id_anggota"
+    ]]).setFontWeight("bold").setBackground("#0891B2").setFontColor("#FFFFFF");
+    sheetTrxProduk.setFrozenRows(1);
+  }
+
+  // 8. Sheet PENGATURAN
   let sheetConfig = ss.getSheetByName(CONFIG.SHEETS.PENGATURAN);
   if (!sheetConfig) {
     sheetConfig = ss.insertSheet(CONFIG.SHEETS.PENGATURAN);

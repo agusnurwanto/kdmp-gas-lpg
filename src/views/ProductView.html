@@ -1,0 +1,288 @@
+<div id="tab-products" class="tab-pane">
+  <div class="toolbar">
+    <div>
+      <h2 style="color: var(--secondary);">Produk Non-LPG &amp; Stok</h2>
+      <p style="font-size: 13px; color: var(--text-muted);">Simpan jenis produk sekali, lalu gunakan kembali untuk barang masuk dan penjualan.</p>
+    </div>
+    <div class="toolbar-right">
+      <button class="btn btn-primary" type="button" onclick="openProductForm()">+ Tambah Produk</button>
+      <button class="btn btn-outline" type="button" onclick="loadProductManagementData()">🔄 Refresh</button>
+    </div>
+  </div>
+
+  <section class="kpi-card" style="margin-bottom: 16px;">
+    <h3 style="margin-bottom: 12px; color: var(--secondary);">Katalog Produk</h3>
+    <div class="table-container">
+      <table class="data-table">
+        <thead>
+          <tr><th>Nama</th><th>Kategori</th><th>Tipe</th><th>Satuan</th><th>Harga jual</th><th>Stok</th><th>Status</th><th>Aksi</th></tr>
+        </thead>
+        <tbody id="product-table-body">
+          <tr><td colspan="8" style="text-align: center; padding: 24px; color: var(--text-muted);">Memuat katalog produk...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="product-form-card" class="kpi-card" style="display: none; margin-bottom: 16px;">
+    <h3 id="product-form-title" style="margin-bottom: 12px; color: var(--secondary);">Tambah Produk</h3>
+    <input type="hidden" id="product-form-id">
+    <div class="kpi-grid" style="margin-bottom: 0;">
+      <div class="form-group">
+        <label class="form-label" for="product-form-name">Nama produk *</label>
+        <input id="product-form-name" class="input-text" type="text" maxlength="120" style="width: 100%;" placeholder="Contoh: Telur ayam">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="product-form-category">Kategori *</label>
+        <input id="product-form-category" class="input-text" type="text" maxlength="80" style="width: 100%;" placeholder="Contoh: Sembako, Gas, Layanan digital">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="product-form-type">Tipe *</label>
+        <select id="product-form-type" class="select-control" style="width: 100%;">
+          <option value="BARANG">Barang (menggunakan stok)</option>
+          <option value="LAYANAN">Layanan digital (tanpa stok)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="product-form-unit">Satuan *</label>
+        <input id="product-form-unit" class="input-text" type="text" maxlength="30" style="width: 100%;" placeholder="pcs, kg, liter, tabung, transaksi">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="product-form-price">Harga jual default (Rp) *</label>
+        <input id="product-form-price" class="input-text" type="number" min="1" step="1" style="width: 100%;">
+      </div>
+      <div class="form-group" id="product-form-status-wrap" style="display: none;">
+        <label class="form-label" for="product-form-status">Status</label>
+        <select id="product-form-status" class="select-control" style="width: 100%;">
+          <option value="AKTIF">AKTIF</option>
+          <option value="NONAKTIF">NONAKTIF</option>
+        </select>
+      </div>
+    </div>
+    <div style="display: flex; gap: 8px; margin-top: 12px;">
+      <button class="btn btn-primary" type="button" onclick="saveProductForm()">Simpan Produk</button>
+      <button class="btn btn-outline" type="button" onclick="closeProductForm()">Batal</button>
+    </div>
+    <p style="font-size: 12px; color: var(--text-muted); margin-top: 10px;">Stok barang dikelola melalui pencatatan barang masuk dan penjualan. Produk ber-riwayat atau masih memiliki stok hanya dapat dinonaktifkan, bukan dihapus.</p>
+  </section>
+
+  <div class="kpi-grid">
+    <section class="kpi-card">
+      <span class="kpi-label">PERSEDIAAN</span>
+      <h3 style="margin: 8px 0 12px; color: var(--secondary);">Catat Barang Masuk</h3>
+      <div class="form-group">
+        <label class="form-label" for="product-stock-id">Produk barang *</label>
+        <select id="product-stock-id" class="select-control" style="width: 100%;"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="product-stock-quantity">Jumlah *</label>
+        <input id="product-stock-quantity" class="input-text" type="number" min="1" step="1" style="width: 100%;">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="product-stock-date">Waktu barang masuk</label>
+        <input id="product-stock-date" class="input-text" type="datetime-local" style="width: 100%;">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="product-stock-cost">Harga beli per satuan (Rp)</label>
+        <input id="product-stock-cost" class="input-text" type="number" min="0" step="1" value="0" style="width: 100%;">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="product-stock-supplier">Pemasok</label>
+        <input id="product-stock-supplier" class="input-text" type="text" maxlength="120" style="width: 100%;">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="product-stock-note">Catatan</label>
+        <input id="product-stock-note" class="input-text" type="text" maxlength="200" style="width: 100%;">
+      </div>
+      <button class="btn btn-primary" type="button" onclick="submitProductStockIn()">Simpan Barang Masuk</button>
+    </section>
+
+    <section class="kpi-card">
+      <span class="kpi-label">KASIR PRODUK</span>
+      <h3 style="margin: 8px 0 12px; color: var(--secondary);">Catat Penjualan</h3>
+      <div class="form-group">
+        <label class="form-label" for="product-sale-id">Produk *</label>
+        <select id="product-sale-id" class="select-control" style="width: 100%;" onchange="updateProductSalePrice()"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="product-sale-quantity">Jumlah *</label>
+        <input id="product-sale-quantity" class="input-text" type="number" min="1" step="1" value="1" style="width: 100%;">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="product-sale-price">Harga jual per satuan (Rp) *</label>
+        <input id="product-sale-price" class="input-text" type="number" min="1" step="1" style="width: 100%;">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="product-sale-date">Waktu penjualan</label>
+        <input id="product-sale-date" class="input-text" type="datetime-local" style="width: 100%;">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="product-sale-buyer-type">Jenis pembeli</label>
+        <select id="product-sale-buyer-type" class="select-control" style="width: 100%;" onchange="updateProductBuyerFields()">
+          <option value="UMUM">Masyarakat umum</option>
+          <option value="ANGGOTA">Anggota</option>
+        </select>
+      </div>
+      <div class="form-group" id="product-sale-member-wrap" style="display: none;">
+        <label class="form-label" for="product-sale-member">Pilih anggota *</label>
+        <select id="product-sale-member" class="select-control" style="width: 100%;"></select>
+      </div>
+      <div class="form-group" id="product-sale-buyer-wrap">
+        <label class="form-label" for="product-sale-buyer">Nama pembeli</label>
+        <input id="product-sale-buyer" class="input-text" type="text" maxlength="120" style="width: 100%;" placeholder="Nama pembeli umum" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="product-sale-payment">Metode pembayaran</label>
+        <select id="product-sale-payment" class="select-control" style="width: 100%;">
+          <option value="TUNAI">Tunai</option>
+          <option value="QRIS">QRIS</option>
+          <option value="TRANSFER">Transfer</option>
+        </select>
+      </div>
+      <button class="btn btn-success" type="button" onclick="submitProductSale()">Simpan Penjualan</button>
+      <p style="font-size: 12px; color: var(--text-muted); margin-top: 10px;">Stok barang berkurang otomatis saat penjualan berhasil. Layanan digital seperti pulsa listrik dan paket data tidak menggunakan stok.</p>
+    </section>
+  </div>
+
+  <section class="kpi-card" style="margin-top: 16px;">
+    <h3 style="margin-bottom: 12px; color: var(--secondary);">Riwayat Barang Masuk Terbaru</h3>
+    <div class="table-container"><table class="data-table">
+      <thead><tr><th>Waktu</th><th>Produk</th><th>Jumlah</th><th>Harga beli/satuan</th><th>Total</th><th>Pemasok</th><th>Aksi</th></tr></thead>
+      <tbody id="product-stock-history-body"><tr><td colspan="7" style="text-align: center; padding: 18px;">Belum ada barang masuk.</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section class="kpi-card" style="margin-top: 16px;">
+    <h3 style="margin-bottom: 12px; color: var(--secondary);">Riwayat Penjualan Terbaru</h3>
+    <div class="table-container"><table class="data-table">
+      <thead><tr><th>Waktu</th><th>Produk</th><th>Jumlah</th><th>Harga/satuan</th><th>Total</th><th>Pembayaran</th><th>Pembeli</th><th>Aksi</th></tr></thead>
+      <tbody id="product-sales-history-body"><tr><td colspan="8" style="text-align: center; padding: 18px;">Belum ada penjualan.</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <div id="product-history-edit-modal" class="modal-backdrop">
+    <div class="modal-dialog" style="max-width: 720px;">
+      <div class="modal-header">
+        <h3 id="product-history-edit-title" class="modal-title">Edit Riwayat Produk</h3>
+        <button class="modal-close" type="button" onclick="closeModal('product-history-edit-modal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input id="product-history-edit-kind" type="hidden">
+        <input id="product-history-edit-id" type="hidden">
+        <div class="kpi-grid" style="margin-bottom: 0;">
+          <div class="form-group">
+            <label class="form-label" for="product-history-edit-date">Waktu *</label>
+            <input id="product-history-edit-date" class="input-text" type="datetime-local" style="width: 100%;">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="product-history-edit-product">Produk *</label>
+            <select id="product-history-edit-product" class="select-control" style="width: 100%;"></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="product-history-edit-quantity">Jumlah *</label>
+            <input id="product-history-edit-quantity" class="input-text" type="number" min="1" step="1" style="width: 100%;">
+          </div>
+          <div class="form-group" id="product-history-edit-cost-wrap">
+            <label class="form-label" for="product-history-edit-cost">Harga beli per satuan (Rp)</label>
+            <input id="product-history-edit-cost" class="input-text" type="number" min="0" step="1" style="width: 100%;">
+          </div>
+          <div class="form-group" id="product-history-edit-price-wrap">
+            <label class="form-label" for="product-history-edit-price">Harga jual per satuan (Rp)</label>
+            <input id="product-history-edit-price" class="input-text" type="number" min="1" step="1" style="width: 100%;">
+          </div>
+          <div class="form-group" id="product-history-edit-supplier-wrap">
+            <label class="form-label" for="product-history-edit-supplier">Pemasok</label>
+            <input id="product-history-edit-supplier" class="input-text" type="text" maxlength="120" style="width: 100%;">
+          </div>
+          <div class="form-group" id="product-history-edit-note-wrap">
+            <label class="form-label" for="product-history-edit-note">Catatan</label>
+            <input id="product-history-edit-note" class="input-text" type="text" maxlength="200" style="width: 100%;">
+          </div>
+          <div class="form-group" id="product-history-edit-payment-wrap">
+            <label class="form-label" for="product-history-edit-payment">Metode pembayaran</label>
+            <select id="product-history-edit-payment" class="select-control" style="width: 100%;">
+              <option value="TUNAI">Tunai</option>
+              <option value="QRIS">QRIS</option>
+              <option value="TRANSFER">Transfer</option>
+            </select>
+          </div>
+          <div class="form-group" id="product-history-edit-buyer-type-wrap">
+            <label class="form-label" for="product-history-edit-buyer-type">Jenis pembeli</label>
+            <select id="product-history-edit-buyer-type" class="select-control" style="width: 100%;" onchange="updateProductHistoryBuyerFields()">
+              <option value="UMUM">Masyarakat umum</option>
+              <option value="ANGGOTA">Anggota</option>
+            </select>
+          </div>
+          <div class="form-group" id="product-history-edit-member-wrap" style="display: none;">
+            <label class="form-label" for="product-history-edit-member">Pilih anggota *</label>
+            <select id="product-history-edit-member" class="select-control" style="width: 100%;"></select>
+          </div>
+          <div class="form-group" id="product-history-edit-buyer-wrap">
+            <label class="form-label" for="product-history-edit-buyer">Nama pembeli</label>
+            <input id="product-history-edit-buyer" class="input-text" type="text" maxlength="120" style="width: 100%;" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="product-history-edit-stock-adjustment">Penyesuaian stok</label>
+            <select id="product-history-edit-stock-adjustment" class="select-control" style="width: 100%;">
+              <option value="AUTO">Sesuaikan stok otomatis</option>
+              <option value="MANUAL">Atur stok manual</option>
+            </select>
+          </div>
+        </div>
+        <p style="font-size: 12px; color: var(--text-muted); margin-top: 10px;">Otomatis adalah pilihan awal. Pilihan manual mengubah riwayat saja; stok berjalan tidak berubah.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" type="button" onclick="closeModal('product-history-edit-modal')">Batal</button>
+        <button class="btn btn-primary" type="button" onclick="saveProductHistoryEdit()">Simpan Perubahan</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="product-history-delete-modal" class="modal-backdrop">
+    <div class="modal-dialog" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Hapus Riwayat Produk</h3>
+        <button class="modal-close" type="button" onclick="closeModal('product-history-delete-modal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input id="product-history-delete-kind" type="hidden">
+        <input id="product-history-delete-id" type="hidden">
+        <p id="product-history-delete-message">Riwayat ini akan dihapus.</p>
+        <div class="form-group">
+          <label class="form-label" for="product-history-delete-stock-adjustment">Penyesuaian stok</label>
+          <select id="product-history-delete-stock-adjustment" class="select-control" style="width: 100%;">
+            <option value="AUTO">Sesuaikan stok otomatis</option>
+            <option value="MANUAL">Atur stok manual</option>
+          </select>
+        </div>
+        <p style="font-size: 12px; color: var(--text-muted);">Otomatis adalah pilihan awal. Jika stok tidak mencukupi, sistem menolak penghapusan otomatis.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" type="button" onclick="closeModal('product-history-delete-modal')">Batal</button>
+        <button class="btn btn-outline" type="button" onclick="confirmDeleteProductHistory()">Hapus Riwayat</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="product-manual-stock-modal" class="modal-backdrop">
+    <div class="modal-dialog" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Atur Stok Manual</h3>
+        <button class="modal-close" type="button" onclick="closeModal('product-manual-stock-modal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input id="product-manual-stock-id" type="hidden">
+        <p style="margin-bottom: 12px;">Produk: <strong id="product-manual-stock-name"></strong></p>
+        <div class="form-group">
+          <label class="form-label" for="product-manual-stock-value">Stok baru *</label>
+          <input id="product-manual-stock-value" class="input-text" type="number" min="0" step="1" required style="width: 100%;">
+        </div>
+        <p style="font-size: 12px; color: var(--text-muted);">Gunakan untuk menyelaraskan stok fisik setelah memilih pengelolaan riwayat secara manual.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" type="button" onclick="closeModal('product-manual-stock-modal')">Batal</button>
+        <button class="btn btn-primary" type="button" onclick="saveManualProductStock()">Simpan Stok</button>
+      </div>
+    </div>
+  </div>
+</div>

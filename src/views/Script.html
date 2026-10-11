@@ -3,6 +3,9 @@
   let currentBatches = [];
   let currentQueue = [];
   let allMembersCache = [];
+  let productManagementCache = [];
+  let productMembersCache = [];
+  let productHistoryCache = { stockIn: [], sales: [] };
   let selectedMapMemberId = "";
   let mapMemberOptions = [];
   let mapMemberActiveIndex = -1;
@@ -166,6 +169,7 @@
   document.addEventListener("DOMContentLoaded", function () {
     initSalesImportControls();
     initCooperativeSettingsControls();
+    initProductDateDefaults();
     initApp();
   });
 
@@ -213,6 +217,7 @@
     loadBatches();
     loadDashboardData();
     loadMembersData();
+    loadProductManagementData();
   }
 
   function clearExpiredAdminSession(message) {
@@ -480,7 +485,7 @@
         return;
       }
       if (!window.confirm(
-        "Restore akan mengganti isi lima sheet aplikasi (ANGGOTA, BATCH_PENGIRIMAN, ANTRIAN_DISTRIBUSI, TRANSAKSI_PENJUALAN, PENGATURAN) dengan isi file " +
+        "Restore akan mengganti isi delapan sheet aplikasi termasuk master produk dan riwayat stok/penjualan dengan isi file " +
         file.name + ". Sheet lain tidak diubah. Pastikan file benar sebelum melanjutkan."
       )) return;
 
@@ -550,7 +555,7 @@
     const adminBadge = document.getElementById("admin-badge-group");
 
     // Tab publik: tab-public-home dan tab-dashboard
-    var adminOnlyTabs = ["tab-queue", "tab-members", "tab-sales-import", "tab-settings"];
+    var adminOnlyTabs = ["tab-queue", "tab-members", "tab-sales-import", "tab-products", "tab-settings"];
 
     if (isAdmin) {
       adminTabs.forEach(function (t) { t.style.display = t.tagName === "TH" ? "table-cell" : "inline-block"; });
@@ -674,7 +679,7 @@
   // ==========================================
 
   // Tab yang hanya boleh diakses admin
-  var ADMIN_ONLY_TABS = ["tab-queue", "tab-members", "tab-sales-import", "tab-settings"];
+  var ADMIN_ONLY_TABS = ["tab-queue", "tab-members", "tab-sales-import", "tab-products", "tab-settings"];
 
   function switchTab(tabId) {
     // Validasi hak akses jika tab admin-only dibuka oleh tamu
@@ -701,6 +706,7 @@
     if (tabId === "tab-dashboard") loadDashboardData();
     if (tabId === "tab-members" && isAdmin) loadMembersData();
     if (tabId === "tab-queue" && isAdmin && selectedBatchId) loadQueueData();
+    if (tabId === "tab-products" && isAdmin) loadProductManagementData();
   }
 
   function showToast(message, isError = false) {
@@ -3006,5 +3012,515 @@
   function escapeQuotes(str) {
     if (!str) return "";
     return str.replace(/'/g, "\\'");
+  }
+
+  function escapeProductHtml(value) {
+    return String(value === undefined || value === null ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function formatProductCurrency(value) {
+    return "Rp " + Number(value || 0).toLocaleString("id-ID");
+  }
+
+  function getProductNowInputValue() {
+    return new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 16);
+  }
+
+  function initProductDateDefaults() {
+    const stockDate = document.getElementById("product-stock-date");
+    const saleDate = document.getElementById("product-sale-date");
+    if (stockDate) stockDate.value = getProductNowInputValue();
+    if (saleDate) saleDate.value = getProductNowInputValue();
+    updateProductBuyerFields();
+  }
+
+  function fillProductMemberSelect(selectId, selectedId) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    select.innerHTML = '<option value="">Pilih anggota</option>' + productMembersCache.map(function (member) {
+      return '<option value="' + escapeProductHtml(member.id_anggota) + '">' +
+        escapeProductHtml(member.nama_lengkap + " (" + member.id_anggota + ")") + "</option>";
+    }).join("");
+    if (selectedId) select.value = selectedId;
+  }
+
+  function updateProductBuyerFields() {
+    const type = document.getElementById("product-sale-buyer-type");
+    const isMember = type && type.value === "ANGGOTA";
+    const memberWrap = document.getElementById("product-sale-member-wrap");
+    const buyerWrap = document.getElementById("product-sale-buyer-wrap");
+    if (memberWrap) memberWrap.style.display = isMember ? "block" : "none";
+    if (buyerWrap) buyerWrap.style.display = isMember ? "none" : "block";
+  }
+
+  function updateProductHistoryBuyerFields() {
+    const type = document.getElementById("product-history-edit-buyer-type");
+    const isMember = type && type.value === "ANGGOTA";
+    const memberWrap = document.getElementById("product-history-edit-member-wrap");
+    const buyerWrap = document.getElementById("product-history-edit-buyer-wrap");
+    if (memberWrap) memberWrap.style.display = isMember ? "block" : "none";
+    if (buyerWrap) buyerWrap.style.display = isMember ? "none" : "block";
+  }
+
+  function loadProductManagementData() {
+    if (!isAdmin) return;
+    appScript.run
+      .withSuccessHandler(function (data) {
+        productManagementCache = data && data.products ? data.products : [];
+        productMembersCache = data && Array.isArray(data.members) ? data.members : [];
+        fillProductMemberSelect("product-sale-member");
+        renderProductManagementData(data || {});
+      })
+      .withFailureHandler(function (error) {
+        showToast(error && error.message ? error.message : "Data produk tidak dapat dimuat.", true);
+      })
+      .getProductManagementData(getAdminToken());
+  }
+
+  function renderProductManagementData(data) {
+    const body = document.getElementById("product-table-body");
+    const products = productManagementCache;
+    if (!body) return;
+    if (!products.length) {
+      body.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted);">Belum ada produk. Tambahkan jenis produk agar dapat digunakan berulang kali.</td></tr>';
+    } else {
+      body.innerHTML = products.map(function (product, index) {
+        const stock = product.tipe_produk === "BARANG" ? Number(product.stok || 0).toLocaleString("id-ID") : "—";
+        return "<tr>" +
+          "<td>" + escapeProductHtml(product.nama_produk) + "</td>" +
+          "<td>" + escapeProductHtml(product.kategori) + "</td>" +
+          "<td>" + (product.tipe_produk === "LAYANAN" ? "Layanan" : "Barang") + "</td>" +
+          "<td>" + escapeProductHtml(product.satuan) + "</td>" +
+          "<td>" + formatProductCurrency(product.harga_jual) + "</td>" +
+          "<td>" + stock + "</td>" +
+          '<td><span class="kpi-badge ' + (product.status_aktif === "AKTIF" ? "badge-success" : "badge-warning") + '">' + escapeProductHtml(product.status_aktif) + "</span></td>" +
+          '<td><div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+            '<button class="btn btn-outline btn-sm" type="button" onclick="editProductFormAt(' + index + ')">Edit</button>' +
+              (product.tipe_produk === "BARANG" ? '<button class="btn btn-outline btn-sm" type="button" onclick="openManualProductStockAt(' + index + ')">Atur Stok</button>' : '') +
+              '<button class="btn btn-outline btn-sm" type="button" onclick="deleteProductRecordAt(' + index + ')">Hapus</button>' +
+          "</div></td></tr>";
+      }).join("");
+    }
+    renderProductSelectors();
+    renderProductHistoryRows("product-stock-history-body", data.stockIn || [], "stockIn");
+    renderProductHistoryRows("product-sales-history-body", data.sales || [], "sales");
+  }
+
+  function renderProductSelectors() {
+    const activeProducts = productManagementCache.filter(function (product) {
+      return product.status_aktif === "AKTIF";
+    });
+    const stockSelect = document.getElementById("product-stock-id");
+    const saleSelect = document.getElementById("product-sale-id");
+    if (stockSelect) {
+      const stockProducts = activeProducts.filter(function (product) { return product.tipe_produk === "BARANG"; });
+      stockSelect.innerHTML = '<option value="">Pilih produk barang</option>' + stockProducts.map(function (product) {
+        return '<option value="' + escapeProductHtml(product.id_produk) + '">' +
+          escapeProductHtml(product.nama_produk) + " (stok " + Number(product.stok || 0).toLocaleString("id-ID") + " " + escapeProductHtml(product.satuan) + ")" +
+          "</option>";
+      }).join("");
+    }
+    if (saleSelect) {
+      saleSelect.innerHTML = '<option value="">Pilih produk</option>' + activeProducts.map(function (product) {
+        const stockLabel = product.tipe_produk === "BARANG"
+          ? " — stok " + Number(product.stok || 0).toLocaleString("id-ID") + " " + product.satuan
+          : " — layanan";
+        return '<option value="' + escapeProductHtml(product.id_produk) + '">' +
+          escapeProductHtml(product.nama_produk + stockLabel) + "</option>";
+      }).join("");
+    }
+    const historySelect = document.getElementById("product-history-edit-product");
+    if (historySelect) {
+      historySelect.innerHTML = '<option value="">Pilih produk</option>' + productManagementCache.map(function (product) {
+        return '<option value="' + escapeProductHtml(product.id_produk) + '">' +
+          escapeProductHtml(product.nama_produk + (product.status_aktif === "NONAKTIF" ? " (nonaktif)" : "")) + "</option>";
+      }).join("");
+    }
+    updateProductSalePrice();
+  }
+
+  function renderProductHistoryRows(bodyId, rows, type) {
+    const body = document.getElementById(bodyId);
+    if (!body) return;
+    productHistoryCache[type] = rows;
+    const recentRows = rows.slice(0, 20);
+    if (!recentRows.length) {
+      body.innerHTML = '<tr><td colspan="' + (type === "stockIn" ? "7" : "8") + '" style="text-align:center;padding:18px;color:var(--text-muted);">Belum ada catatan.</td></tr>';
+      return;
+    }
+    body.innerHTML = recentRows.map(function (row, index) {
+      const actions = '<td><div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+        '<button class="btn btn-outline btn-sm" type="button" onclick="editProductHistoryAt(\'' + type + '\',' + index + ')">Edit</button>' +
+        '<button class="btn btn-outline btn-sm" type="button" onclick="openDeleteProductHistory(\'' + type + '\',' + index + ')">Hapus</button>' +
+        "</div></td>";
+      if (type === "stockIn") {
+        return "<tr><td>" + escapeProductHtml(row.tgl_waktu) + "</td><td>" + escapeProductHtml(row.nama_produk) +
+          "</td><td>" + Number(row.jumlah).toLocaleString("id-ID") + "</td><td>" + formatProductCurrency(row.harga_satuan) +
+          "</td><td>" + formatProductCurrency(row.total) + "</td><td>" + escapeProductHtml(row.pemasok || "—") + "</td>" + actions + "</tr>";
+      }
+      return "<tr><td>" + escapeProductHtml(row.tgl_waktu) + "</td><td>" + escapeProductHtml(row.nama_produk) +
+        (row.tipe_produk === "LAYANAN" ? " (layanan)" : "") + "</td><td>" + Number(row.jumlah).toLocaleString("id-ID") +
+        "</td><td>" + formatProductCurrency(row.harga_satuan) + "</td><td>" + formatProductCurrency(row.total) +
+        "</td><td>" + escapeProductHtml(row.metode_bayar) + "</td><td>" + escapeProductHtml(row.nama_pembeli) +
+        (row.jenis_pembeli === "ANGGOTA" && row.id_anggota ? " (" + escapeProductHtml(row.id_anggota) + ")" : "") +
+        "</td>" + actions + "</tr>";
+    }).join("");
+  }
+
+  function openProductForm() {
+    document.getElementById("product-form-id").value = "";
+    document.getElementById("product-form-title").textContent = "Tambah Produk";
+    document.getElementById("product-form-name").value = "";
+    document.getElementById("product-form-category").value = "";
+    document.getElementById("product-form-type").value = "BARANG";
+    document.getElementById("product-form-unit").value = "pcs";
+    document.getElementById("product-form-price").value = "";
+    document.getElementById("product-form-status").value = "AKTIF";
+    document.getElementById("product-form-status-wrap").style.display = "none";
+    document.getElementById("product-form-card").style.display = "block";
+    document.getElementById("product-form-card").scrollIntoView({ behavior: "smooth", block: "center" });
+    document.getElementById("product-form-name").focus();
+  }
+
+  function editProductForm(productId) {
+    const product = productManagementCache.find(function (item) { return item.id_produk === productId; });
+    if (!product) {
+      showToast("Produk tidak ditemukan. Muat ulang katalog.", true);
+      return;
+    }
+    document.getElementById("product-form-id").value = product.id_produk;
+    document.getElementById("product-form-title").textContent = "Edit Produk";
+    document.getElementById("product-form-name").value = product.nama_produk;
+    document.getElementById("product-form-category").value = product.kategori;
+    document.getElementById("product-form-type").value = product.tipe_produk;
+    document.getElementById("product-form-unit").value = product.satuan;
+    document.getElementById("product-form-price").value = product.harga_jual;
+    document.getElementById("product-form-status").value = product.status_aktif;
+    document.getElementById("product-form-status-wrap").style.display = "block";
+    document.getElementById("product-form-card").style.display = "block";
+    document.getElementById("product-form-card").scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  function editProductFormAt(productIndex) {
+    const product = productManagementCache[Number(productIndex)];
+    if (product) editProductForm(product.id_produk);
+  }
+
+  function closeProductForm() {
+    document.getElementById("product-form-card").style.display = "none";
+  }
+
+  function saveProductForm() {
+    if (!isAdmin) {
+      showToast("Login admin diperlukan untuk mengelola produk.", true);
+      return;
+    }
+    const payload = {
+      id_produk: document.getElementById("product-form-id").value,
+      nama_produk: document.getElementById("product-form-name").value,
+      kategori: document.getElementById("product-form-category").value,
+      tipe_produk: document.getElementById("product-form-type").value,
+      satuan: document.getElementById("product-form-unit").value,
+      harga_jual: document.getElementById("product-form-price").value,
+      status_aktif: document.getElementById("product-form-status").value,
+      sessionToken: getAdminToken()
+    };
+    appScript.run
+      .withSuccessHandler(function (result) {
+        if (!result || !result.success) {
+          showToast(result && result.message ? result.message : "Produk gagal disimpan.", true);
+          return;
+        }
+        closeProductForm();
+        showToast(result.message);
+        loadProductManagementData();
+      })
+      .withFailureHandler(function (error) {
+        showToast(error && error.message ? error.message : "Produk gagal disimpan.", true);
+      })
+      .saveProduct(payload);
+  }
+
+  function deleteProductRecord(productId) {
+    const product = productManagementCache.find(function (item) { return item.id_produk === productId; });
+    if (!product || !window.confirm('Hapus produk "' + product.nama_produk + '"? Produk yang sudah memiliki stok atau riwayat transaksi tidak bisa dihapus; nonaktifkan produk tersebut.')) return;
+    appScript.run
+      .withSuccessHandler(function (result) {
+        if (!result || !result.success) {
+          showToast(result && result.message ? result.message : "Produk gagal dihapus.", true);
+          return;
+        }
+        showToast(result.message);
+        loadProductManagementData();
+      })
+      .withFailureHandler(function (error) {
+        showToast(error && error.message ? error.message : "Produk gagal dihapus.", true);
+      })
+      .deleteProduct({ id_produk: productId, sessionToken: getAdminToken() });
+  }
+
+  function deleteProductRecordAt(productIndex) {
+    const product = productManagementCache[Number(productIndex)];
+    if (product) deleteProductRecord(product.id_produk);
+  }
+
+  function openManualProductStockAt(productIndex) {
+    if (!isAdmin) return;
+    const product = productManagementCache[Number(productIndex)];
+    if (!product || product.tipe_produk !== "BARANG") {
+      showToast("Produk barang tidak ditemukan. Muat ulang katalog.", true);
+      return;
+    }
+    document.getElementById("product-manual-stock-id").value = product.id_produk;
+    document.getElementById("product-manual-stock-name").textContent = product.nama_produk;
+    document.getElementById("product-manual-stock-value").value = Number(product.stok || 0);
+    openModal("product-manual-stock-modal");
+  }
+
+  function saveManualProductStock() {
+    if (!isAdmin) {
+      showToast("Login admin diperlukan untuk mengubah stok.", true);
+      return;
+    }
+    const payload = {
+      id_produk: document.getElementById("product-manual-stock-id").value,
+      stok: document.getElementById("product-manual-stock-value").value,
+      sessionToken: getAdminToken()
+    };
+    appScript.run
+      .withSuccessHandler(function (result) {
+        if (!result || !result.success) {
+          showToast(result && result.message ? result.message : "Stok gagal diatur.", true);
+          return;
+        }
+        closeModal("product-manual-stock-modal");
+        showToast(result.message);
+        loadProductManagementData();
+      })
+      .withFailureHandler(function (error) {
+        showToast(error && error.message ? error.message : "Stok gagal diatur.", true);
+      })
+      .setProductStockManually(payload);
+  }
+
+  function updateProductSalePrice() {
+    const id = document.getElementById("product-sale-id").value;
+    const product = productManagementCache.find(function (item) { return item.id_produk === id; });
+    document.getElementById("product-sale-price").value = product ? product.harga_jual : "";
+  }
+
+  function submitProductStockIn() {
+    const payload = {
+      id_produk: document.getElementById("product-stock-id").value,
+      jumlah: document.getElementById("product-stock-quantity").value,
+      tgl_waktu: document.getElementById("product-stock-date").value,
+      harga_beli_satuan: document.getElementById("product-stock-cost").value,
+      pemasok: document.getElementById("product-stock-supplier").value,
+      catatan: document.getElementById("product-stock-note").value,
+      sessionToken: getAdminToken()
+    };
+    appScript.run
+      .withSuccessHandler(function (result) {
+        if (!result || !result.success) {
+          showToast(result && result.message ? result.message : "Barang masuk gagal dicatat.", true);
+          return;
+        }
+        document.getElementById("product-stock-quantity").value = "";
+        document.getElementById("product-stock-date").value = getProductNowInputValue();
+        document.getElementById("product-stock-cost").value = "0";
+        document.getElementById("product-stock-supplier").value = "";
+        document.getElementById("product-stock-note").value = "";
+        showToast(result.message);
+        loadProductManagementData();
+      })
+      .withFailureHandler(function (error) {
+        showToast(error && error.message ? error.message : "Barang masuk gagal dicatat.", true);
+      })
+      .recordProductStockIn(payload);
+  }
+
+  function submitProductSale() {
+    const buyerType = document.getElementById("product-sale-buyer-type").value;
+    if (buyerType === "UMUM" && !document.getElementById("product-sale-buyer").value.trim()) {
+      showToast("Nama pembeli umum wajib diisi.", true);
+      return;
+    }
+    if (buyerType === "ANGGOTA" && !document.getElementById("product-sale-member").value) {
+      showToast("Pilih anggota pembeli.", true);
+      return;
+    }
+    const payload = {
+      id_produk: document.getElementById("product-sale-id").value,
+      jumlah: document.getElementById("product-sale-quantity").value,
+      harga_satuan: document.getElementById("product-sale-price").value,
+      tgl_waktu: document.getElementById("product-sale-date").value,
+      jenis_pembeli: buyerType,
+      id_anggota: buyerType === "ANGGOTA" ? document.getElementById("product-sale-member").value : "",
+      nama_pembeli: buyerType === "UMUM" ? document.getElementById("product-sale-buyer").value : "",
+      metode_bayar: document.getElementById("product-sale-payment").value,
+      sessionToken: getAdminToken()
+    };
+    appScript.run
+      .withSuccessHandler(function (result) {
+        if (!result || !result.success) {
+          showToast(result && result.message ? result.message : "Penjualan gagal dicatat.", true);
+          return;
+        }
+        document.getElementById("product-sale-quantity").value = "1";
+        document.getElementById("product-sale-buyer").value = "";
+        document.getElementById("product-sale-member").value = "";
+        document.getElementById("product-sale-date").value = getProductNowInputValue();
+        showToast(result.message + " Total " + formatProductCurrency(result.total_bayar) + ".");
+        loadProductManagementData();
+      })
+      .withFailureHandler(function (error) {
+        showToast(error && error.message ? error.message : "Penjualan gagal dicatat.", true);
+      })
+      .recordProductSale(payload);
+  }
+
+  function editProductHistoryAt(kind, index) {
+    if (!isAdmin) return;
+    const row = (productHistoryCache[kind] || [])[Number(index)];
+    if (!row) {
+      showToast("Riwayat tidak ditemukan. Muat ulang data produk.", true);
+      return;
+    }
+    const stockIn = kind === "stockIn";
+    const editProductSelect = document.getElementById("product-history-edit-product");
+    const editableProducts = stockIn
+      ? productManagementCache.filter(function (product) { return product.tipe_produk === "BARANG"; })
+      : productManagementCache;
+    editProductSelect.innerHTML = '<option value="">Pilih produk</option>' + editableProducts.map(function (product) {
+      return '<option value="' + escapeProductHtml(product.id_produk) + '">' +
+        escapeProductHtml(product.nama_produk + (product.status_aktif === "NONAKTIF" ? " (nonaktif)" : "")) + "</option>";
+    }).join("");
+    document.getElementById("product-history-edit-kind").value = kind;
+    document.getElementById("product-history-edit-id").value = row.id;
+    document.getElementById("product-history-edit-date").value = String(row.tgl_waktu || "").replace(" ", "T");
+    document.getElementById("product-history-edit-product").value = row.id_produk;
+    document.getElementById("product-history-edit-quantity").value = row.jumlah;
+    document.getElementById("product-history-edit-cost-wrap").style.display = stockIn ? "block" : "none";
+    document.getElementById("product-history-edit-supplier-wrap").style.display = stockIn ? "block" : "none";
+    document.getElementById("product-history-edit-note-wrap").style.display = stockIn ? "block" : "none";
+    document.getElementById("product-history-edit-price-wrap").style.display = stockIn ? "none" : "block";
+    document.getElementById("product-history-edit-payment-wrap").style.display = stockIn ? "none" : "block";
+    document.getElementById("product-history-edit-buyer-type-wrap").style.display = stockIn ? "none" : "block";
+    document.getElementById("product-history-edit-member-wrap").style.display = "none";
+    document.getElementById("product-history-edit-buyer-wrap").style.display = "none";
+    if (stockIn) {
+      document.getElementById("product-history-edit-title").textContent = "Edit Riwayat Barang Masuk";
+      document.getElementById("product-history-edit-cost").value = row.harga_satuan;
+      document.getElementById("product-history-edit-supplier").value = row.pemasok || "";
+      document.getElementById("product-history-edit-note").value = row.catatan || "";
+    } else {
+      document.getElementById("product-history-edit-title").textContent = "Edit Riwayat Penjualan";
+      document.getElementById("product-history-edit-price").value = row.harga_satuan;
+      document.getElementById("product-history-edit-payment").value = row.metode_bayar || "TUNAI";
+      document.getElementById("product-history-edit-buyer-type").value = row.jenis_pembeli || "UMUM";
+      document.getElementById("product-history-edit-buyer").value = row.nama_pembeli || "";
+      fillProductMemberSelect("product-history-edit-member", row.id_anggota || "");
+      updateProductHistoryBuyerFields();
+    }
+    document.getElementById("product-history-edit-stock-adjustment").value = "AUTO";
+    openModal("product-history-edit-modal");
+  }
+
+  function saveProductHistoryEdit() {
+    if (!isAdmin) {
+      showToast("Login admin diperlukan untuk mengelola riwayat produk.", true);
+      return;
+    }
+    const kind = document.getElementById("product-history-edit-kind").value;
+    const buyerType = document.getElementById("product-history-edit-buyer-type").value;
+    const payload = {
+      kind: kind,
+      id: document.getElementById("product-history-edit-id").value,
+      tgl_waktu: document.getElementById("product-history-edit-date").value,
+      id_produk: document.getElementById("product-history-edit-product").value,
+      jumlah: document.getElementById("product-history-edit-quantity").value,
+      stock_adjustment: document.getElementById("product-history-edit-stock-adjustment").value,
+      sessionToken: getAdminToken()
+    };
+    if (kind === "stockIn") {
+      payload.harga_satuan = document.getElementById("product-history-edit-cost").value;
+      payload.pemasok = document.getElementById("product-history-edit-supplier").value;
+      payload.catatan = document.getElementById("product-history-edit-note").value;
+    } else {
+      if (buyerType === "UMUM" && !document.getElementById("product-history-edit-buyer").value.trim()) {
+        showToast("Nama pembeli umum wajib diisi.", true);
+        return;
+      }
+      if (buyerType === "ANGGOTA" && !document.getElementById("product-history-edit-member").value) {
+        showToast("Pilih anggota pembeli.", true);
+        return;
+      }
+      payload.harga_satuan = document.getElementById("product-history-edit-price").value;
+      payload.metode_bayar = document.getElementById("product-history-edit-payment").value;
+      payload.jenis_pembeli = buyerType;
+      payload.id_anggota = buyerType === "ANGGOTA" ? document.getElementById("product-history-edit-member").value : "";
+      payload.nama_pembeli = buyerType === "UMUM" ? document.getElementById("product-history-edit-buyer").value : "";
+    }
+    appScript.run
+      .withSuccessHandler(function (result) {
+        if (!result || !result.success) {
+          showToast(result && result.message ? result.message : "Riwayat gagal diperbarui.", true);
+          return;
+        }
+        closeModal("product-history-edit-modal");
+        showToast(result.message);
+        loadProductManagementData();
+      })
+      .withFailureHandler(function (error) {
+        showToast(error && error.message ? error.message : "Riwayat gagal diperbarui.", true);
+      })
+      .updateProductHistory(payload);
+  }
+
+  function openDeleteProductHistory(kind, index) {
+    if (!isAdmin) return;
+    const row = (productHistoryCache[kind] || [])[Number(index)];
+    if (!row) {
+      showToast("Riwayat tidak ditemukan. Muat ulang data produk.", true);
+      return;
+    }
+    document.getElementById("product-history-delete-kind").value = kind;
+    document.getElementById("product-history-delete-id").value = row.id;
+    document.getElementById("product-history-delete-stock-adjustment").value = "AUTO";
+    document.getElementById("product-history-delete-message").textContent =
+      'Hapus catatan ' + (kind === "stockIn" ? "barang masuk " : "penjualan ") + row.nama_produk + " sejumlah " + row.jumlah + "?";
+    openModal("product-history-delete-modal");
+  }
+
+  function confirmDeleteProductHistory() {
+    if (!isAdmin) {
+      showToast("Login admin diperlukan untuk mengelola riwayat produk.", true);
+      return;
+    }
+    const payload = {
+      kind: document.getElementById("product-history-delete-kind").value,
+      id: document.getElementById("product-history-delete-id").value,
+      stock_adjustment: document.getElementById("product-history-delete-stock-adjustment").value,
+      sessionToken: getAdminToken()
+    };
+    appScript.run
+      .withSuccessHandler(function (result) {
+        if (!result || !result.success) {
+          showToast(result && result.message ? result.message : "Riwayat gagal dihapus.", true);
+          return;
+        }
+        closeModal("product-history-delete-modal");
+        showToast(result.message);
+        loadProductManagementData();
+      })
+      .withFailureHandler(function (error) {
+        showToast(error && error.message ? error.message : "Riwayat gagal dihapus.", true);
+      })
+      .deleteProductHistory(payload);
   }
 </script>

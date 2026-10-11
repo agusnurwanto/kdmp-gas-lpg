@@ -1,8 +1,8 @@
 /**
- * Backup and restore for the five application-owned database sheets.
+ * Backup and restore for the application-owned database sheets.
  */
 const DATABASE_BACKUP_FORMAT = "kdmp-gas-lpg-database";
-const DATABASE_BACKUP_VERSION = 1;
+const DATABASE_BACKUP_VERSION = 2;
 
 function getDatabaseBackupSheetNames_() {
   return [
@@ -10,6 +10,9 @@ function getDatabaseBackupSheetNames_() {
     CONFIG.SHEETS.BATCH_PENGIRIMAN,
     CONFIG.SHEETS.ANTRIAN_DISTRIBUSI,
     CONFIG.SHEETS.TRANSAKSI_PENJUALAN,
+    CONFIG.SHEETS.PRODUK,
+    CONFIG.SHEETS.BARANG_MASUK,
+    CONFIG.SHEETS.TRANSAKSI_PRODUK,
     CONFIG.SHEETS.PENGATURAN
   ];
 }
@@ -81,7 +84,7 @@ function validateDatabaseBackup_(backup) {
   }
   if (!backup || typeof backup !== "object" ||
       backup.format !== DATABASE_BACKUP_FORMAT ||
-      backup.version !== DATABASE_BACKUP_VERSION ||
+      [1, DATABASE_BACKUP_VERSION].indexOf(backup.version) === -1 ||
       !backup.sheets || typeof backup.sheets !== "object" || Array.isArray(backup.sheets)) {
     throw new Error("Format atau versi file backup tidak didukung.");
   }
@@ -91,11 +94,23 @@ function validateDatabaseBackup_(backup) {
   requiredHeaders[CONFIG.SHEETS.BATCH_PENGIRIMAN] = ["id_batch", "tgl_jadwal", "hari", "waktu_kirim", "jumlah_stok", "jumlah_terambil", "sisa_stok", "status_batch"];
   requiredHeaders[CONFIG.SHEETS.ANTRIAN_DISTRIBUSI] = ["id_antrian", "id_batch", "no_urut", "id_anggota_asli", "id_anggota_penerima", "status_antrian", "keterangan_penyesuaian", "waktu_generate", "waktu_ambil", "waktu_terakhir_wa"];
   requiredHeaders[CONFIG.SHEETS.TRANSAKSI_PENJUALAN] = ["id_transaksi", "id_antrian", "id_batch", "id_anggota", "tgl_waktu_transaksi", "jumlah_tabung", "harga_per_tabung", "total_bayar", "metode_bayar", "nama_pengambil", "petugas_pencatat"];
+  requiredHeaders[CONFIG.SHEETS.PRODUK] = ["id_produk", "nama_produk", "kategori", "tipe_produk", "satuan", "harga_jual", "stok", "status_aktif", "dibuat_pada", "diperbarui_pada"];
+  requiredHeaders[CONFIG.SHEETS.BARANG_MASUK] = ["id_barang_masuk", "id_produk", "nama_produk", "tgl_waktu", "jumlah", "harga_beli_satuan", "total_beli", "pemasok", "catatan", "petugas"];
+  requiredHeaders[CONFIG.SHEETS.TRANSAKSI_PRODUK] = ["id_transaksi", "tgl_waktu", "id_produk", "nama_produk", "tipe_produk", "jumlah", "harga_satuan", "total_bayar", "metode_bayar", "nama_pembeli", "petugas"];
   requiredHeaders[CONFIG.SHEETS.PENGATURAN] = ["Kunci", "Nilai"];
 
   const cleanSheets = {};
   getDatabaseBackupSheetNames_().forEach(function (name) {
     const rows = backup.sheets[name];
+    const isNewSheet = [
+      CONFIG.SHEETS.PRODUK,
+      CONFIG.SHEETS.BARANG_MASUK,
+      CONFIG.SHEETS.TRANSAKSI_PRODUK
+    ].indexOf(name) !== -1;
+    if (backup.version === 1 && isNewSheet && rows === undefined) {
+      cleanSheets[name] = [requiredHeaders[name]];
+      return;
+    }
     if (!Array.isArray(rows) || rows.length === 0 || !Array.isArray(rows[0])) {
       throw new Error("Sheet " + name + " tidak tersedia atau tidak memiliki header pada backup.");
     }
